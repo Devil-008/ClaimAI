@@ -1,0 +1,167 @@
+/* ── Dashboard Layout ── */
+.dashboard-layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.dashboard-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.dashboard-content {
+  flex: 1;
+  padding: 28px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Children that need to fill height (e.g. RagChat) */
+.dashboard-content > * {
+  flex-shrink: 0;
+}
+.dashboard-content > .rag-page-wrapper {
+  flex: 1;
+  min-height: 0;
+  flex-shrink: 1;
+}
+
+/* ── Stat card ── */
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.stat-card:hover {
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
+}
+
+.stat-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.stat-value {
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.stat-delta {
+  font-size: 0.78rem;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stat-delta.up {
+  color: var(--success);
+}
+
+.stat-delta.down {
+  color: var(--danger);
+}
+
+/* ── Stats grid ── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+/* ── Section heading ── */
+.dash-section-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Table ── */
+.dash-table-wrap {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.dash-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.dash-table th {
+  padding: 14px 16px;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border);
+}
+
+.dash-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.dash-table tr:last-child td {
+  border-bottom: none;
+}
+
+.dash-table tbody tr {
+  transition: background 0.15s;
+}
+
+.dash-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* ── Page title ── */
+.page-heading {
+  margin-bottom: 24px;
+}
+
+.page-heading h1 {
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.page-heading p {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-top: 4px;
+}

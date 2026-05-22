@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claim AI</title>
+    <!-- Tailwind CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Vis Network JS -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: radial-gradient(circle at center, #0f172a 0%, #020617 100%);
+            color: #f3f4f6;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+        }
+        .space-font {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        #network-container {
+            width: 100%;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+        }
+        .glass-input {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #f3f4f6;
+            transition: all 0.3s ease;
+        }
+        .glass-input:focus {
+            border-color: #3b82f6;
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+            outline: none;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen">
+
+    <!-- Vis Network Canvas -->
+    <div id="network-container"></div>
+
+    <!-- Stunning HUD Overlay -->
+    <div class="absolute top-6 left-6 z-10 w-96 max-h-[90vh] flex flex-col gap-4">
+        
+        <!-- Main Dashboard Card -->
+        <div class="glass-panel rounded-2xl p-6 flex flex-col gap-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-xl font-bold space-font tracking-wide bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 bg-clip-text text-transparent">
+                        SENTINEL KG
+                    </h1>
+                    <p class="text-xs text-gray-400 font-semibold tracking-wider uppercase">
+                        Knowledge Graph Visualizer
+                    </p>
+                </div>
+                <div class="flex gap-2">
+                    <span class="px-2 py-1 text-[10px] font-bold rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                        ARANGODB
+                    </span>
+                </div>
+            </div>
+
+            <!-- Stats Bar -->
+            <div class="grid grid-cols-2 gap-3 bg-white/5 rounded-xl p-3 border border-white/5">
+                <div class="text-center">
+                    <div id="stats-nodes" class="text-2xl font-bold text-blue-400 space-font">0</div>
+                    <div class="text-[10px] text-gray-400 uppercase font-semibold">Entities</div>
+                </div>
+                <div class="text-center border-l border-white/10">
+                    <div id="stats-edges" class="text-2xl font-bold text-purple-400 space-font">0</div>
+                    <div class="text-[10px] text-gray-400 uppercase font-semibold">Relationships</div>
+                </div>
+            </div>
+
+            <!-- Search and Filter -->
+            <div class="flex flex-col gap-2">
+                <label class="text-xs text-gray-400 font-medium">Search Graph</label>
+                <div class="relative">
+                    <input type="text" id="search-input" placeholder="Search entity name..." class="w-full px-4 py-2 text-sm rounded-xl glass-input pl-10">
+                    <svg class="w-4 h-4 text-gray-400 absolute left-3.5 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Graph Physics & Controls -->
+            <div class="flex items-center justify-between text-xs text-gray-300">
+                <div class="flex items-center gap-2">
+                    <button id="btn-physics" class="px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 transition-all font-medium">
+                        Freeze Layout
+                    </button>
+                    <button id="btn-reset" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/10 transition-all font-medium">
+                        Reset Zoom
+                    </button>
+                </div>
+                <button id="btn-export" class="px-3 py-1.5 rounded-lg bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-green-400 transition-all font-medium">
+                    Export PNG
+                </button>
+            </div>
+        </div>
+
+        <!-- Translucent Detail Drawer -->
+        <div id="details-panel" class="glass-panel rounded-2xl p-6 flex flex-col gap-4 hidden transition-all duration-300 transform translate-y-4 opacity-0">
+            <div class="flex items-start justify-between">
+                <div>
+                    <h2 id="details-title" class="text-lg font-bold space-font text-white leading-tight">Entity Name</h2>
+                    <span id="details-type" class="inline-block mt-1.5 px-2.5 py-0.5 text-[10px] font-bold rounded uppercase tracking-wider">
+                        LABEL
+                    </span>
+                </div>
+                <button id="btn-close-details" class="text-gray-400 hover:text-white transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="border-t border-white/10 my-1"></div>
+
+            <div class="flex flex-col gap-3 overflow-y-auto max-h-[40vh] pr-1" id="details-body">
+                <!-- Dynamic key-value grid will go here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Small controls instructions at bottom right -->
+    <div class="absolute bottom-6 right-6 z-10 glass-panel rounded-xl px-4 py-2.5 text-xs text-gray-400 flex flex-col gap-1 pointer-events-none">
+        <div>💡 Drag node to position | Scroll to zoom</div>
+        <div>💡 Click node or edge to inspect details</div>
+    </div>
+
+    <script type="text/javascript">
+        // Inject the nodes and edges fetched from ArangoDB
+        const rawData = {"nodes": [{"id": "sbi_general_insurance_company", "label": "SBI General Insurance Company Limited", "canonical_name": "SBI General Insurance Company Limited", "aliases": [], "properties": {"type": "Insurance Company", "product_line": "Health Insurance", "policy_type": "Retail"}}, {"id": "health_insurance_policy_retail", "label": "Health Insurance Policy - Retail", "canonical_name": "Health Insurance Policy - Retail", "aliases": [], "properties": {"uin": "SBIHLIP21331V032021", "coverage_type": "Retail", "scope": "Basic cover up to limit specified in policy schedule"}}, {"id": "room_board_nursing_expenses", "label": "Room, Board & Nursing expenses", "canonical_name": "Room, Board & Nursing expenses", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "medical_fees", "label": "Medical Practitioner, Surgeon, Anesthetist, Consultants, and Specialists Fees", "canonical_name": "Medical Practitioner, Surgeon, Anesthetist, Consultants, and Specialists Fees", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "surgical_expenses", "label": "Anesthesia, Blood, Oxygen, Operation Theatre Expenses, Surgical Appliances, Medicines & consumables, Diagnostic expenses and X-ray, Dialysis, Chemotherapy, Radiotherapy, Cost of Pacemaker, prosthesis/ internal implants", "canonical_name": "Anesthesia, Blood, Oxygen, Operation Theatre Expenses, Surgical Appliances, Medicines & consumables, Diagnostic expenses and X-ray, Dialysis, Chemotherapy, Radiotherapy, Cost of Pacemaker, prosthesis/ internal implants", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "cataract_treatment", "label": "Cataract Treatment", "canonical_name": "Cataract Treatment", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "pre_hospitalization_expenses", "label": "Pre-Hospitalisation Expenses", "canonical_name": "Pre-Hospitalisation Expenses", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "post_hospitalization_expenses", "label": "Post-Hospitalisation Expenses", "canonical_name": "Post-Hospitalisation Expenses", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "day_care_expenses", "label": "Day Care Expenses", "canonical_name": "Day Care Expenses", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "ambulance_expenses", "label": "Ambulance Expenses", "canonical_name": "Ambulance Expenses", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "ayurvedic_medicine", "label": "Ayurvedic Medicine", "canonical_name": "Ayurvedic Medicine", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "homeopathic_unani_medicine", "label": "Homeopathic and Unani system of medicine", "canonical_name": "Homeopathic and Unani system of medicine", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "domiciliary_hospitalisation", "label": "Domiciliary Hospitalisation", "canonical_name": "Domiciliary Hospitalisation", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "organ_donor", "label": "Organ Donor", "canonical_name": "Organ Donor", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "free_medical_checkup", "label": "Free medical check-up", "canonical_name": "Free medical check-up", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "parental_care", "label": "Parental Care", "canonical_name": "Parental Care", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "accidental_hospitalisation", "label": "Accidental Hospitalisation", "canonical_name": "Accidental Hospitalisation", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "child_care", "label": "Child Care", "canonical_name": "Child Care", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "co_pay", "label": "Co-pay", "canonical_name": "Co-pay", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "convalescence_benefit", "label": "Convalescence Benefit", "canonical_name": "Convalescence Benefit", "aliases": [], "properties": {"description": "Covered as basic cover up to limit specified in policy schedule"}}, {"id": "hiv_aids_cover", "label": "HIV/AIDS Cover", "canonical_name": "HIV/AIDS Cover", "aliases": [], "properties": {"description": "Covered up to the limit of Rs.50,000", "limit": 50000}}, {"id": "mental_illness_cover", "label": "Mental Illness Cover", "canonical_name": "Mental Illness Cover", "aliases": [], "properties": {"description": "Covered up to the limit of Rs.50,000", "limit": 50000}}, {"id": "genetic_disorders_cover", "label": "Genetic Disorders Cover", "canonical_name": "Genetic Disorders Cover", "aliases": [], "properties": {"description": "Covered up to the limit of Rs.50,000", "limit": 50000}}, {"id": "internal_congenital_diseases_cover", "label": "Internal Congenital Diseases Cover", "canonical_name": "Internal Congenital Diseases Cover", "aliases": [], "properties": {"description": "Covered up to the limit of 10% of Sum Insured"}}, {"id": "advance_procedure_cover", "label": "12 Advance procedure Cover", "canonical_name": "12 Advance procedure Cover", "aliases": [], "properties": {"description": "Covered up to 50% of Sum Insured"}}, {"id": "room_icu_rent_sublimits_removal", "label": "Removal of Room & ICU rent sub-limits", "canonical_name": "Removal of Room & ICU rent sub-limits", "aliases": [], "properties": {"description": "Available on payment of additional premium"}}, {"id": "operation_consultancy_sublimits_removal", "label": "Removal of sub-limits on operation and consultancy charges", "canonical_name": "Removal of sub-limits on operation and consultancy charges", "aliases": [], "properties": {"description": "Available on payment of additional premium"}}, {"id": "ayurvedic_homeopathic_cover_removal", "label": "Removal of Ayurvedic and homeopathic cover", "canonical_name": "Removal of Ayurvedic and homeopathic cover", "aliases": [], "properties": {"description": "Available on payment of additional premium"}}, {"id": "admission_investigation_evaluation_exclusion", "label": "Admission primarily for investigation & evaluation", "canonical_name": "Admission primarily for investigation & evaluation", "aliases": [], "properties": {}}, {"id": "admission_rest_cure_rehabilitation_exclusion", "label": "Admission primarily for rest Cure, rehabilitation and respite care", "canonical_name": "Admission primarily for rest Cure, rehabilitation and respite care", "aliases": [], "properties": {}}, {"id": "obesity_surgery_exclusion", "label": "Expenses related to the surgical treatment of obesity that do not fulfill certain conditions", "canonical_name": "Expenses related to the surgical treatment of obesity that do not fulfill certain conditions", "aliases": [], "properties": {}}, {"id": "gender_treatment_exclusion", "label": "Change-of-Gender treatments", "canonical_name": "Change-of-Gender treatments", "aliases": [], "properties": {}}, {"id": "cosmetic_surgery_exclusion", "label": "Expenses for cosmetic or plastic surgery", "canonical_name": "Expenses for cosmetic or plastic surgery", "aliases": [], "properties": {}}, {"id": "hazardous_sports_exclusion", "label": "Expenses related to any treatment necessitated due to participation in hazardous or adventure sports", "canonical_name": "Expenses related to any treatment necessitated due to participation in hazardous or adventure sports", "aliases": [], "properties": {}}, {"id": "initial_waiting_period", "label": "Initial waiting period", "canonical_name": "Initial waiting period", "aliases": [], "properties": {"duration": "30 days", "applicability": "All illnesses (not applicable on renewal or for accidents)"}}, {"id": "90_days_waiting_period", "label": "90 days waiting period", "canonical_name": "90 days waiting period", "aliases": [], "properties": {"duration": "90 days", "applicability": "Some diseases and surgeries"}}, {"id": "1_year_waiting_period", "label": "1 year waiting period", "canonical_name": "1 year waiting period", "aliases": [], "properties": {"duration": "1 year", "applicability": "Some diseases and surgeries"}}, {"id": "2_years_waiting_period", "label": "2 years waiting period", "canonical_name": "2 years waiting period", "aliases": [], "properties": {"duration": "2 years", "applicability": "Some diseases and surgeries"}}, {"id": "3_years_waiting_period", "label": "3 years waiting period", "canonical_name": "3 years waiting period", "aliases": [], "properties": {"duration": "3 years", "applicability": "Joint replacement due to degenerative condition (not applicable for accidents)"}}, {"id": "pre_existing_diseases_waiting_period", "label": "Pre-existing diseases waiting period", "canonical_name": "Pre-existing diseases waiting period", "aliases": [], "properties": {"duration": "48 months", "applicability": "Unless otherwise provided"}}, {"id": "indemnity_basis_payout", "label": "Indemnity basis", "canonical_name": "Indemnity basis", "aliases": [], "properties": {"description": "Covered expenses up to specified sum insured"}}, {"id": "co_payment", "label": "Co-payment", "canonical_name": "Co-payment", "aliases": [], "properties": {"description": "10% of each claim as co-payment in case of non-network hospitalisation"}}, {"id": "renewal_policy", "label": "Policy Renewal", "canonical_name": "Policy Renewal", "aliases": [], "properties": {"description": "Ordinarily renewable except on misrepresentation by grounds of fraud", "grace_period": "30 days"}}, {"id": "free_medical_checkup_benefit", "label": "Free Medical Checkup", "canonical_name": "Free Medical Checkup", "aliases": [], "properties": {"description": "For 4 continuous claim-free years"}}, {"id": "policy_cancellation", "label": "Policy Cancellation", "canonical_name": "Policy Cancellation", "aliases": [], "properties": {"description": "Policyholder may cancel by giving 15 days' written notice"}}, {"id": "company_cancellation", "label": "Company Cancellation", "canonical_name": "Company Cancellation", "aliases": [], "properties": {"description": "Company may cancel on grounds of misrepresentation, non-disclosure of material facts, fraud"}}, {"id": "cashless_service", "label": "Cashless Service", "canonical_name": "Cashless Service", "aliases": [], "properties": {"description": "Refer to hospital network details"}}, {"id": "reimbursement_claim", "label": "Reimbursement of Claim", "canonical_name": "Reimbursement of Claim", "aliases": [], "properties": {"prescribed_time_limit": "Within fifteen days of date of discharge from hospital (hospitalization, day care, pre-hospitalization) or completion of post-hospitalization treatment"}}, {"id": "grievance_redressal_level1", "label": "Level 1", "canonical_name": "Level 1", "aliases": [], "properties": {"contact_methods": ["Toll Free: 1800221111, 18001021111", "Email: customer.care@sbigeneral.in", "Website: www.sbigeneral.in", "Branch office visit", "Fax: 1800227244, 18001027244"]}}, {"id": "grievance_redressal_level2", "label": "Level 2", "canonical_name": "Level 2", "aliases": [], "properties": {"contact_method": "Email: head.customercare@sbigeneral.in"}}, {"id": "grievance_redressal_level3", "label": "Level 3", "canonical_name": "Level 3", "aliases": [], "properties": {"contact_method": "Appeal to Chairman of the Grievance Redressal Committee", "email": "gro@sbigeneral.in"}}, {"id": "grievance_redressal_level4", "label": "Level 4", "canonical_name": "Level 4", "aliases": [], "properties": {"contact_method": "Approach IRDA via Toll Free: 155255 or website: http://igms.irda.gov.in"}}, {"id": "senior_citizens_grievance", "label": "Senior Citizens Grievance", "canonical_name": "Senior Citizens Grievance", "aliases": [], "properties": {"contact_method": "Email: seniorcitizengrievances@sbigeneral.in"}}, {"id": "insurance_ombudsman", "label": "Insurance Ombudsman", "canonical_name": "Insurance Ombudsman", "aliases": [], "properties": {"description": "Contact details provided in Annexure-B of Policy document"}}, {"id": "free_look_period", "label": "Free Look period", "canonical_name": "Free Look period", "aliases": [], "properties": {"duration": "15 days", "applicability": "From the date of receipt of the policy"}}, {"id": "right_to_migrate", "label": "Right to migrate", "canonical_name": "Right to migrate", "aliases": [], "properties": {"description": "Right to migrate from one product to another product of the company", "contact": "Toll free: 1800-22-1111, Email: customer.care@sbigeneral.in"}}, {"id": "right_to_port", "label": "Right to port", "canonical_name": "Right to port", "aliases": [], "properties": {"description": "Right to port from one company to another company", "contact": "Toll free: 1800-22-1111, Email: customer.care@sbigeneral.in"}}, {"id": "pre_existing_diseases_disclosure", "label": "Disclosure of pre-existing diseases", "canonical_name": "Disclosure of pre-existing diseases", "aliases": [], "properties": {"description": "Disclose all pre-existing disease/s or condition/s before buying a policy"}}, {"id": "individual_basis_coverage", "label": "Coverage opted on individual basis", "canonical_name": "Coverage opted on individual basis", "aliases": [], "properties": {"description": "Coverage opted on individual basis covering each member of the family separately", "premium_35yrs": 5973, "premium_30yrs": 5973, "sum_insured": 5500000}}, {"id": "family_floater_coverage", "label": "Coverage opted on family floater basis", "canonical_name": "Coverage opted on family floater basis", "aliases": [], "properties": {"description": "Coverage opted on family floater basis with overall Sum Insured (Only one Sum Insured is available for the entire family)", "premium_35yrs": 14933, "premium_30yrs": 14933, "sum_insured": 5500000}}, {"id": "child_coverage", "label": "Coverage for children", "canonical_name": "Coverage for children", "aliases": [], "properties": {"premium_15yrs": 5027, "premium_10yrs": 5027, "sum_insured": 500000}}], "edges": [{"id": "sbi_general_insurance_company_health_insurance_policy_retail_OFFERS", "from": "sbi_general_insurance_company", "to": "health_insurance_policy_retail", "type": "OFFERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_room_board_nursing_expenses_COVERS", "from": "health_insurance_policy_retail", "to": "room_board_nursing_expenses", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_medical_fees_COVERS", "from": "health_insurance_policy_retail", "to": "medical_fees", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_surgical_expenses_COVERS", "from": "health_insurance_policy_retail", "to": "surgical_expenses", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_cataract_treatment_COVERS", "from": "health_insurance_policy_retail", "to": "cataract_treatment", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_pre_hospitalization_expenses_COVERS", "from": "health_insurance_policy_retail", "to": "pre_hospitalization_expenses", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_post_hospitalization_expenses_COVERS", "from": "health_insurance_policy_retail", "to": "post_hospitalization_expenses", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_day_care_expenses_COVERS", "from": "health_insurance_policy_retail", "to": "day_care_expenses", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_ambulance_expenses_COVERS", "from": "health_insurance_policy_retail", "to": "ambulance_expenses", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_ayurvedic_medicine_COVERS", "from": "health_insurance_policy_retail", "to": "ayurvedic_medicine", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_homeopathic_unani_medicine_COVERS", "from": "health_insurance_policy_retail", "to": "homeopathic_unani_medicine", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_domiciliary_hospitalisation_COVERS", "from": "health_insurance_policy_retail", "to": "domiciliary_hospitalisation", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_organ_donor_COVERS", "from": "health_insurance_policy_retail", "to": "organ_donor", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_free_medical_checkup_COVERS", "from": "health_insurance_policy_retail", "to": "free_medical_checkup", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_parental_care_COVERS", "from": "health_insurance_policy_retail", "to": "parental_care", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_accidental_hospitalisation_COVERS", "from": "health_insurance_policy_retail", "to": "accidental_hospitalisation", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_child_care_COVERS", "from": "health_insurance_policy_retail", "to": "child_care", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_co_pay_COVERS", "from": "health_insurance_policy_retail", "to": "co_pay", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_convalescence_benefit_COVERS", "from": "health_insurance_policy_retail", "to": "convalescence_benefit", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_hiv_aids_cover_COVERS", "from": "health_insurance_policy_retail", "to": "hiv_aids_cover", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_mental_illness_cover_COVERS", "from": "health_insurance_policy_retail", "to": "mental_illness_cover", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_genetic_disorders_cover_COVERS", "from": "health_insurance_policy_retail", "to": "genetic_disorders_cover", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_internal_congenital_diseases_cover_COVERS", "from": "health_insurance_policy_retail", "to": "internal_congenital_diseases_cover", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_advance_procedure_cover_COVERS", "from": "health_insurance_policy_retail", "to": "advance_procedure_cover", "type": "COVERS", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_room_icu_rent_sublimits_removal_OFFERS_ADD_ON", "from": "health_insurance_policy_retail", "to": "room_icu_rent_sublimits_removal", "type": "OFFERS_ADD_ON", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_operation_consultancy_sublimits_removal_OFFERS_ADD_ON", "from": "health_insurance_policy_retail", "to": "operation_consultancy_sublimits_removal", "type": "OFFERS_ADD_ON", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_ayurvedic_homeopathic_cover_removal_OFFERS_ADD_ON", "from": "health_insurance_policy_retail", "to": "ayurvedic_homeopathic_cover_removal", "type": "OFFERS_ADD_ON", "evidence": "Document: sbi_health.pdf, Page 1", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_admission_investigation_evaluation_exclusion_EXCLUDES", "from": "health_insurance_policy_retail", "to": "admission_investigation_evaluation_exclusion", "type": "EXCLUDES", "evidence": "Document: sbi_health.pdf, Page 2", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_admission_rest_cure_rehabilitation_exclusion_EXCLUDES", "from": "health_insurance_policy_retail", "to": "admission_rest_cure_rehabilitation_exclusion", "type": "EXCLUDES", "evidence": "Document: sbi_health.pdf, Page 2", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_obesity_surgery_exclusion_EXCLUDES", "from": "health_insurance_policy_retail", "to": "obesity_surgery_exclusion", "type": "EXCLUDES", "evidence": "Document: sbi_health.pdf, Page 2", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_gender_treatment_exclusion_EXCLUDES", "from": "health_insurance_policy_retail", "to": "gender_treatment_exclusion", "type": "EXCLUDES", "evidence": "Document: sbi_health.pdf, Page 2", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_cosmetic_surgery_exclusion_EXCLUDES", "from": "health_insurance_policy_retail", "to": "cosmetic_surgery_exclusion", "type": "EXCLUDES", "evidence": "Document: sbi_health.pdf, Page 2", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_hazardous_sports_exclusion_EXCLUDES", "from": "health_insurance_policy_retail", "to": "hazardous_sports_exclusion", "type": "EXCLUDES", "evidence": "Document: sbi_health.pdf, Page 2", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_initial_waiting_period_HAS_WAITING_PERIOD", "from": "health_insurance_policy_retail", "to": "initial_waiting_period", "type": "HAS_WAITING_PERIOD", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_90_days_waiting_period_HAS_WAITING_PERIOD", "from": "health_insurance_policy_retail", "to": "90_days_waiting_period", "type": "HAS_WAITING_PERIOD", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_1_year_waiting_period_HAS_WAITING_PERIOD", "from": "health_insurance_policy_retail", "to": "1_year_waiting_period", "type": "HAS_WAITING_PERIOD", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_2_years_waiting_period_HAS_WAITING_PERIOD", "from": "health_insurance_policy_retail", "to": "2_years_waiting_period", "type": "HAS_WAITING_PERIOD", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_3_years_waiting_period_HAS_WAITING_PERIOD", "from": "health_insurance_policy_retail", "to": "3_years_waiting_period", "type": "HAS_WAITING_PERIOD", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_pre_existing_diseases_waiting_period_HAS_WAITING_PERIOD", "from": "health_insurance_policy_retail", "to": "pre_existing_diseases_waiting_period", "type": "HAS_WAITING_PERIOD", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_indemnity_basis_payout_HAS_PAYOUT_BASIS", "from": "health_insurance_policy_retail", "to": "indemnity_basis_payout", "type": "HAS_PAYOUT_BASIS", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_co_payment_HAS_COST_SHARING", "from": "health_insurance_policy_retail", "to": "co_payment", "type": "HAS_COST_SHARING", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_renewal_policy_HAS_RENEWAL_POLICY", "from": "health_insurance_policy_retail", "to": "renewal_policy", "type": "HAS_RENEWAL_POLICY", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "renewal_policy_free_medical_checkup_benefit_OFFERS_BENEFIT", "from": "renewal_policy", "to": "free_medical_checkup_benefit", "type": "OFFERS_BENEFIT", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_policy_cancellation_HAS_CANCELLATION_POLICY", "from": "health_insurance_policy_retail", "to": "policy_cancellation", "type": "HAS_CANCELLATION_POLICY", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "policy_cancellation_company_cancellation_ALLOWS", "from": "policy_cancellation", "to": "company_cancellation", "type": "ALLOWS", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_cashless_service_HAS_CLAIMS_PROCESS", "from": "health_insurance_policy_retail", "to": "cashless_service", "type": "HAS_CLAIMS_PROCESS", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_reimbursement_claim_HAS_CLAIMS_PROCESS", "from": "health_insurance_policy_retail", "to": "reimbursement_claim", "type": "HAS_CLAIMS_PROCESS", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_grievance_redressal_level1_HAS_GRIEVANCE_REDRESSAL", "from": "health_insurance_policy_retail", "to": "grievance_redressal_level1", "type": "HAS_GRIEVANCE_REDRESSAL", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "grievance_redressal_level1_grievance_redressal_level2_ESCALATES_TO", "from": "grievance_redressal_level1", "to": "grievance_redressal_level2", "type": "ESCALATES_TO", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "grievance_redressal_level2_grievance_redressal_level3_ESCALATES_TO", "from": "grievance_redressal_level2", "to": "grievance_redressal_level3", "type": "ESCALATES_TO", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "grievance_redressal_level3_grievance_redressal_level4_ESCALATES_TO", "from": "grievance_redressal_level3", "to": "grievance_redressal_level4", "type": "ESCALATES_TO", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "grievance_redressal_level4_senior_citizens_grievance_INCLUDES", "from": "grievance_redressal_level4", "to": "senior_citizens_grievance", "type": "INCLUDES", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "grievance_redressal_level4_insurance_ombudsman_ESCALATES_TO", "from": "grievance_redressal_level4", "to": "insurance_ombudsman", "type": "ESCALATES_TO", "evidence": "Document: sbi_health.pdf, Page 3", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_free_look_period_HAS_FREE_LOOK_PERIOD", "from": "health_insurance_policy_retail", "to": "free_look_period", "type": "HAS_FREE_LOOK_PERIOD", "evidence": "Document: sbi_health.pdf, Page 4", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_right_to_migrate_HAS_RIGHT", "from": "health_insurance_policy_retail", "to": "right_to_migrate", "type": "HAS_RIGHT", "evidence": "Document: sbi_health.pdf, Page 4", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_right_to_port_HAS_RIGHT", "from": "health_insurance_policy_retail", "to": "right_to_port", "type": "HAS_RIGHT", "evidence": "Document: sbi_health.pdf, Page 4", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_pre_existing_diseases_disclosure_REQUIRES", "from": "health_insurance_policy_retail", "to": "pre_existing_diseases_disclosure", "type": "REQUIRES", "evidence": "Document: sbi_health.pdf, Page 4", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_individual_basis_coverage_HAS_COVERAGE_OPTION", "from": "health_insurance_policy_retail", "to": "individual_basis_coverage", "type": "HAS_COVERAGE_OPTION", "evidence": "Document: sbi_health.pdf, Page 4", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_family_floater_coverage_HAS_COVERAGE_OPTION", "from": "health_insurance_policy_retail", "to": "family_floater_coverage", "type": "HAS_COVERAGE_OPTION", "evidence": "Document: sbi_health.pdf, Page 4", "timestamp": "2023-10-15"}, {"id": "health_insurance_policy_retail_child_coverage_HAS_COVERAGE_OPTION", "from": "health_insurance_policy_retail", "to": "child_coverage", "type": "HAS_COVERAGE_OPTION", "evidence": "Document: sbi_health.pdf, Page 4", "timestamp": "2023-10-15"}]};
+
+        console.log("Raw Data Loaded:", rawData);
+
+        const nodeColors = {
+            'person': { background: '#1e1b4b', border: '#6366f1', highlight: { background: '#312e81', border: '#818cf8' } },
+            'policyholder': { background: '#1e1b4b', border: '#6366f1', highlight: { background: '#312e81', border: '#818cf8' } },
+            'policy': { background: '#082f49', border: '#0ea5e9', highlight: { background: '#0c4a6e', border: '#38bdf8' } },
+            'insurance_policy': { background: '#082f49', border: '#0ea5e9', highlight: { background: '#0c4a6e', border: '#38bdf8' } },
+            'claim': { background: '#450a0a', border: '#ef4444', highlight: { background: '#7f1d1d', border: '#f87171' } },
+            'incident': { background: '#450a0a', border: '#ef4444', highlight: { background: '#7f1d1d', border: '#f87171' } },
+            'benefit': { background: '#022c22', border: '#10b981', highlight: { background: '#064e3b', border: '#34d399' } },
+            'coverage': { background: '#022c22', border: '#10b981', highlight: { background: '#064e3b', border: '#34d399' } },
+            'company': { background: '#451a03', border: '#f59e0b', highlight: { background: '#78350f', border: '#fbbf24' } },
+            'insurer': { background: '#451a03', border: '#f59e0b', highlight: { background: '#78350f', border: '#fbbf24' } },
+            'default': { background: '#2e1065', border: '#8b5cf6', highlight: { background: '#4c1d95', border: '#a78bfa' } }
+        };
+
+        // Format data for Vis.js
+        const nodesArray = rawData.nodes.map(n => {
+            // n.label is the entity type (e.g. "Coverage", "Policy", "Person")
+            // n.canonical_name is the display name
+            const entityType = (n.label || '').toLowerCase().replace(/[^a-z_]/g, '_');
+            const colorScheme = nodeColors[entityType] || nodeColors['default'];
+            
+            // Shorten long canonical names for display
+            const displayLabel = n.canonical_name && n.canonical_name.length > 30
+                ? n.canonical_name.substring(0, 28) + '…'
+                : (n.canonical_name || n.id);
+            
+            return {
+                id: n.id,
+                label: displayLabel,
+                title: `<b>${n.canonical_name}</b><br/>Type: ${n.label}`,
+                shape: 'dot',
+                size: 20,
+                color: {
+                    background: colorScheme.background,
+                    border: colorScheme.border,
+                    highlight: colorScheme.highlight
+                },
+                font: {
+                    color: '#f3f4f6',
+                    size: 12,
+                    face: 'Outfit'
+                },
+                borderWidth: 2,
+                shadow: true,
+                raw: n
+            };
+        });
+
+        const edgesArray = rawData.edges.map(e => {
+            return {
+                id: e.id,
+                from: e.from,
+                to: e.to,
+                label: e.type,
+                font: {
+                    color: '#9ca3af',
+                    size: 10,
+                    face: 'Outfit',
+                    strokeWidth: 0,
+                    align: 'middle'
+                },
+                color: {
+                    color: '#4b5563',
+                    highlight: '#60a5fa',
+                    hover: '#93c5fd'
+                },
+                arrows: {
+                    to: { enabled: true, scaleFactor: 0.5 }
+                },
+                width: 1.5,
+                smooth: { type: 'cubicBezier', roundness: 0.5 },
+                shadow: true,
+                raw: e
+            };
+        });
+
+        // Set Stats
+        document.getElementById('stats-nodes').innerText = nodesArray.length;
+        document.getElementById('stats-edges').innerText = edgesArray.length;
+
+        // Initialize Vis Network
+        const container = document.getElementById('network-container');
+        const data = {
+            nodes: new vis.DataSet(nodesArray),
+            edges: new vis.DataSet(edgesArray)
+        };
+
+        const options = {
+            physics: {
+                enabled: true,
+                solver: 'forceAtlas2Based',
+                forceAtlas2Based: {
+                    gravitationalConstant: -50,
+                    centralGravity: 0.01,
+                    springLength: 100,
+                    springConstant: 0.08,
+                    damping: 0.4
+                },
+                stabilization: {
+                    enabled: true,
+                    iterations: 150,
+                    updateInterval: 25
+                }
+            },
+            interaction: {
+                hover: true,
+                selectConnectedEdges: true
+            }
+        };
+
+        const network = new vis.Network(container, data, options);
+
+        let physicsEnabled = true;
+        const btnPhysics = document.getElementById('btn-physics');
+        btnPhysics.addEventListener('click', () => {
+            physicsEnabled = !physicsEnabled;
+            network.setOptions({ physics: { enabled: physicsEnabled } });
+            if (physicsEnabled) {
+                btnPhysics.innerText = "Freeze Layout";
+                btnPhysics.classList.remove('bg-red-500/20', 'text-red-400', 'border-red-500/30');
+                btnPhysics.classList.add('bg-blue-500/20', 'text-blue-400', 'border-blue-500/30');
+            } else {
+                btnPhysics.innerText = "Unfreeze Layout";
+                btnPhysics.classList.remove('bg-blue-500/20', 'text-blue-400', 'border-blue-500/30');
+                btnPhysics.classList.add('bg-red-500/20', 'text-red-400', 'border-red-500/30');
+            }
+        });
+
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            network.fit({ animation: { duration: 1000, easingFunction: 'easeInOutQuad' } });
+        });
+
+        document.getElementById('btn-close-details').addEventListener('click', () => {
+            closeDetails();
+        });
+
+        // Search highlight
+        const searchInput = document.getElementById('search-input');
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            if (!query) {
+                // Reset sizes/borderWidths
+                data.nodes.update(nodesArray);
+                return;
+            }
+
+            const matchedNodeIds = [];
+            const updatedNodes = nodesArray.map(n => {
+                const nameMatch = n.label.toLowerCase().includes(query);
+                const typeMatch = (n.raw.label || '').toLowerCase().includes(query);
+                const propsMatch = Object.entries(n.raw.properties || {}).some(
+                    ([key, val]) => String(val).toLowerCase().includes(query)
+                );
+
+                if (nameMatch || typeMatch || propsMatch) {
+                    matchedNodeIds.push(n.id);
+                    return { ...n, size: 28, borderWidth: 4 };
+                } else {
+                    return { ...n, size: 12, borderWidth: 1 };
+                }
+            });
+
+            data.nodes.update(updatedNodes);
+
+            if (matchedNodeIds.length > 0) {
+                // Focus on the first matched node
+                network.focus(matchedNodeIds[0], {
+                    scale: 1.0,
+                    animation: { duration: 500, easingFunction: 'easeInOutQuad' }
+                });
+                
+                // Show details if exactly one match
+                if (matchedNodeIds.length === 1) {
+                    const matchedNode = rawData.nodes.find(n => n.id === matchedNodeIds[0]);
+                    showNodeDetails(matchedNode);
+                }
+            }
+        });
+
+        // Click actions
+        network.on("selectNode", (params) => {
+            const nodeId = params.nodes[0];
+            const node = rawData.nodes.find(n => n.id === nodeId);
+            if (node) showNodeDetails(node);
+        });
+
+        network.on("selectEdge", (params) => {
+            // Only trigger if no node is selected
+            if (params.nodes.length === 0) {
+                const edgeId = params.edges[0];
+                const edge = rawData.edges.find(e => e.id === edgeId);
+                if (edge) showEdgeDetails(edge);
+            }
+        });
+
+        network.on("deselectNode", () => {
+            closeDetails();
+        });
+
+        network.on("deselectEdge", () => {
+            closeDetails();
+        });
+
+        function showNodeDetails(node) {
+            const panel = document.getElementById('details-panel');
+            panel.classList.remove('hidden');
+            setTimeout(() => {
+                panel.classList.remove('translate-y-4', 'opacity-0');
+            }, 50);
+
+            document.getElementById('details-title').innerText = node.canonical_name;
+            const typeLabel = document.getElementById('details-type');
+            typeLabel.innerText = node.label || 'Entity';
+            
+            // Color tag based on label
+            const labelLower = (node.label || '').toLowerCase();
+            typeLabel.className = "inline-block mt-1 px-2.5 py-0.5 text-[10px] font-bold rounded uppercase tracking-wider ";
+            if (labelLower === 'person' || labelLower === 'policyholder') typeLabel.classList.add('bg-pink-500/20', 'text-pink-400', 'border', 'border-pink-500/30');
+            else if (labelLower === 'policy' || labelLower === 'insurance_policy') typeLabel.classList.add('bg-blue-500/20', 'text-blue-400', 'border', 'border-blue-500/30');
+            else if (labelLower === 'claim' || labelLower === 'incident') typeLabel.classList.add('bg-red-500/20', 'text-red-400', 'border', 'border-red-500/30');
+            else if (labelLower === 'benefit' || labelLower === 'coverage') typeLabel.classList.add('bg-emerald-500/20', 'text-emerald-400', 'border', 'border-emerald-500/30');
+            else if (labelLower === 'company' || labelLower === 'insurer') typeLabel.classList.add('bg-amber-500/20', 'text-amber-400', 'border', 'border-amber-500/30');
+            else typeLabel.classList.add('bg-purple-500/20', 'text-purple-400', 'border', 'border-purple-500/30');
+
+            // Render properties
+            const body = document.getElementById('details-body');
+            body.innerHTML = '';
+
+            // Aliases if any
+            if (node.aliases && node.aliases.length > 0) {
+                body.appendChild(createPropRow('Aliases', node.aliases.join(', ')));
+            }
+
+            // Other dynamic properties
+            const props = node.properties || {};
+            const keys = Object.keys(props).sort();
+            
+            if (keys.length === 0 && (!node.aliases || node.aliases.length === 0)) {
+                body.innerHTML = '<div class="text-xs text-gray-500 italic">No additional properties for this entity.</div>';
+            } else {
+                keys.forEach(k => {
+                    let val = props[k];
+                    if (typeof val === 'object') val = JSON.stringify(val);
+                    // Format key nicely
+                    const displayKey = k.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+                    body.appendChild(createPropRow(displayKey, val));
+                });
+            }
+        }
+
+        function showEdgeDetails(edge) {
+            const panel = document.getElementById('details-panel');
+            panel.classList.remove('hidden');
+            setTimeout(() => {
+                panel.classList.remove('translate-y-4', 'opacity-0');
+            }, 50);
+
+            document.getElementById('details-title').innerText = `${edge.from} ➔ ${edge.to}`;
+            const typeLabel = document.getElementById('details-type');
+            typeLabel.innerText = edge.type || 'RELATIONSHIP';
+            typeLabel.className = "inline-block mt-1 px-2.5 py-0.5 text-[10px] font-bold rounded uppercase tracking-wider bg-gray-500/20 text-gray-300 border border-gray-500/30";
+
+            const body = document.getElementById('details-body');
+            body.innerHTML = '';
+
+            body.appendChild(createPropRow('From Entity', edge.from));
+            body.appendChild(createPropRow('To Entity', edge.to));
+            body.appendChild(createPropRow('Relationship Type', edge.type));
+            
+            if (edge.timestamp) body.appendChild(createPropRow('Occurrence Time', edge.timestamp));
+            if (edge.evidence) body.appendChild(createPropRow('Supporting Evidence', edge.evidence));
+        }
+
+        function createPropRow(key, val) {
+            const div = document.createElement('div');
+            div.className = "flex flex-col gap-1 bg-white/5 rounded-lg p-2 border border-white/5";
+            div.innerHTML = `
+                <span class="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">${key}</span>
+                <span class="text-xs text-gray-200">${val}</span>
+            `;
+            return div;
+        }
+
+        function closeDetails() {
+            const panel = document.getElementById('details-panel');
+            panel.classList.add('translate-y-4', 'opacity-0');
+            setTimeout(() => {
+                panel.classList.add('hidden');
+            }, 300);
+        }
+
+        // Export PNG functionality
+        document.getElementById('btn-export').addEventListener('click', () => {
+            // Temporarily freeze layout for export
+            const isPhysics = physicsEnabled;
+            if (isPhysics) network.setOptions({ physics: { enabled: false } });
+
+            setTimeout(() => {
+                const canvas = container.getElementsByTagName('canvas')[0];
+                if (canvas) {
+                    const link = document.createElement('a');
+                    link.download = 'sentinel_knowledge_graph.png';
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                }
+                
+                // Restore physics
+                if (isPhysics) network.setOptions({ physics: { enabled: true } });
+            }, 100);
+        });
+    </script>
+</body>
+</html>

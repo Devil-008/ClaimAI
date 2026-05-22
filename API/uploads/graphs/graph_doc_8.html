@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claim AI</title>
+    <!-- Tailwind CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Vis Network JS -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: radial-gradient(circle at center, #0f172a 0%, #020617 100%);
+            color: #f3f4f6;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+        }
+        .space-font {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        #network-container {
+            width: 100%;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+        }
+        .glass-input {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #f3f4f6;
+            transition: all 0.3s ease;
+        }
+        .glass-input:focus {
+            border-color: #3b82f6;
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+            outline: none;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen">
+
+    <!-- Vis Network Canvas -->
+    <div id="network-container"></div>
+
+    <!-- Stunning HUD Overlay -->
+    <div class="absolute top-6 left-6 z-10 w-96 max-h-[90vh] flex flex-col gap-4">
+        
+        <!-- Main Dashboard Card -->
+        <div class="glass-panel rounded-2xl p-6 flex flex-col gap-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-xl font-bold space-font tracking-wide bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 bg-clip-text text-transparent">
+                        SENTINEL KG
+                    </h1>
+                    <p class="text-xs text-gray-400 font-semibold tracking-wider uppercase">
+                        Knowledge Graph Visualizer
+                    </p>
+                </div>
+                <div class="flex gap-2">
+                    <span class="px-2 py-1 text-[10px] font-bold rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                        ARANGODB
+                    </span>
+                </div>
+            </div>
+
+            <!-- Stats Bar -->
+            <div class="grid grid-cols-2 gap-3 bg-white/5 rounded-xl p-3 border border-white/5">
+                <div class="text-center">
+                    <div id="stats-nodes" class="text-2xl font-bold text-blue-400 space-font">0</div>
+                    <div class="text-[10px] text-gray-400 uppercase font-semibold">Entities</div>
+                </div>
+                <div class="text-center border-l border-white/10">
+                    <div id="stats-edges" class="text-2xl font-bold text-purple-400 space-font">0</div>
+                    <div class="text-[10px] text-gray-400 uppercase font-semibold">Relationships</div>
+                </div>
+            </div>
+
+            <!-- Search and Filter -->
+            <div class="flex flex-col gap-2">
+                <label class="text-xs text-gray-400 font-medium">Search Graph</label>
+                <div class="relative">
+                    <input type="text" id="search-input" placeholder="Search entity name..." class="w-full px-4 py-2 text-sm rounded-xl glass-input pl-10">
+                    <svg class="w-4 h-4 text-gray-400 absolute left-3.5 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Graph Physics & Controls -->
+            <div class="flex items-center justify-between text-xs text-gray-300">
+                <div class="flex items-center gap-2">
+                    <button id="btn-physics" class="px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 transition-all font-medium">
+                        Freeze Layout
+                    </button>
+                    <button id="btn-reset" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/10 transition-all font-medium">
+                        Reset Zoom
+                    </button>
+                </div>
+                <button id="btn-export" class="px-3 py-1.5 rounded-lg bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-green-400 transition-all font-medium">
+                    Export PNG
+                </button>
+            </div>
+        </div>
+
+        <!-- Translucent Detail Drawer -->
+        <div id="details-panel" class="glass-panel rounded-2xl p-6 flex flex-col gap-4 hidden transition-all duration-300 transform translate-y-4 opacity-0">
+            <div class="flex items-start justify-between">
+                <div>
+                    <h2 id="details-title" class="text-lg font-bold space-font text-white leading-tight">Entity Name</h2>
+                    <span id="details-type" class="inline-block mt-1.5 px-2.5 py-0.5 text-[10px] font-bold rounded uppercase tracking-wider">
+                        LABEL
+                    </span>
+                </div>
+                <button id="btn-close-details" class="text-gray-400 hover:text-white transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="border-t border-white/10 my-1"></div>
+
+            <div class="flex flex-col gap-3 overflow-y-auto max-h-[40vh] pr-1" id="details-body">
+                <!-- Dynamic key-value grid will go here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Small controls instructions at bottom right -->
+    <div class="absolute bottom-6 right-6 z-10 glass-panel rounded-xl px-4 py-2.5 text-xs text-gray-400 flex flex-col gap-1 pointer-events-none">
+        <div>💡 Drag node to position | Scroll to zoom</div>
+        <div>💡 Click node or edge to inspect details</div>
+    </div>
+
+    <script type="text/javascript">
+        // Inject the nodes and edges fetched from ArangoDB
+        const rawData = {"nodes": [{"id": "USGICL", "label": "Universal Sompo General Insurance Company Limited", "canonical_name": "Universal Sompo General Insurance Company Limited", "aliases": [], "properties": {"type": "Insurance Company", "abbreviation": "USGICL", "policy_type": "Complete Healthcare Insurance"}}, {"id": "Sharad_Mathur", "label": "Sharad Mathur", "canonical_name": "Sharad Mathur", "aliases": [], "properties": {"designation": "Managing Director & CEO"}}, {"id": "Policy_Complete_Healthcare", "label": "Complete Healthcare Insurance Policy", "canonical_name": "Complete Healthcare Insurance Policy", "aliases": [], "properties": {"UIN": "UNIHLIP21409V022021", "type": "Health Insurance", "issuer": "Universal Sompo General Insurance Company Limited"}}, {"id": "Accident", "label": "Accident", "canonical_name": "Accident", "aliases": [], "properties": {"definition": "A sudden unforeseen and involuntary event caused by external, visible and violent means."}}, {"id": "Any_One_Illness", "label": "Any One Illness", "canonical_name": "Any One Illness", "aliases": [], "properties": {"definition": "Continuous period of illness including relapse within 45 days from the date of last consultation."}}, {"id": "Adventure_Sports", "label": "Adventure Sports", "canonical_name": "Adventure Sports", "aliases": [], "properties": {"definition": "Participation in sports activities such as bungee jumping, sky diving, white water canoeing/rafting, racing, hunting, mountaineering, ice hockey, winter sports, etc."}}, {"id": "Alternative_Treatment", "label": "Alternative Treatment", "canonical_name": "Alternative Treatment", "aliases": [], "properties": {"definition": "Forms of treatments other than Allopathy or modern medicine, including Ayurveda, Unani, Siddha, and Homeopathy."}}, {"id": "Break_In_Policy", "label": "Break In Policy", "canonical_name": "Break In Policy", "aliases": [], "properties": {"definition": "Occurs when the premium due for renewal is not paid on or before the renewal date or within 30 days thereof."}}, {"id": "Cashless_Facility", "label": "Cashless Facility", "canonical_name": "Cashless Facility", "aliases": [], "properties": {"definition": "Facility where payments for treatment costs are directly made to the Network Provider by the insurer."}}, {"id": "Condition_Precedent", "label": "Condition Precedent", "canonical_name": "Condition Precedent", "aliases": [], "properties": {"definition": "A policy term or condition upon which the insurer's liability is conditional."}}, {"id": "Congenital_Anomaly", "label": "Congenital Anomaly", "canonical_name": "Congenital Anomaly", "aliases": [], "properties": {"definition": "A condition present since birth, abnormal in form, structure, or position.", "subtypes": ["Internal Congenital Anomaly", "External Congenital Anomaly"]}}, {"id": "Contribution", "label": "Contribution", "canonical_name": "Contribution", "aliases": [], "properties": {"definition": "Right of an insurer to call upon other insurers to share the cost of an indemnity claim."}}, {"id": "Co_Pay", "label": "Co-pay", "canonical_name": "Co-pay", "aliases": [], "properties": {"definition": "Cost-sharing requirement where the policyholder bears a specified percentage of the admissible claim amount."}}, {"id": "Cumulative_Bonus", "label": "Cumulative Bonus", "canonical_name": "Cumulative Bonus", "aliases": [], "properties": {"definition": "Increase in the Sum Insured granted by the insurer without an associated increase in premium."}}, {"id": "Day_Care_Treatment", "label": "Day Care Treatment/Procedures", "canonical_name": "Day Care Treatment/Procedures", "aliases": [], "properties": {"definition": "Treatment in a medical setup registered with local authorities, supervised by a qualified medical practitioner."}}, {"id": "Dental_Treatment", "label": "Dental Treatment", "canonical_name": "Dental Treatment", "aliases": [], "properties": {"definition": "Treatment by a dental practitioner including examinations, fillings, crowns, extractions, and surgery (excluding cosmetic surgery/implant)."}}, {"id": "Domiciliary_Treatment", "label": "Domiciliary Treatment", "canonical_name": "Domiciliary Treatment", "aliases": [], "properties": {"definition": "Medical treatment taken at home due to patient's condition or non-availability of hospital room."}}, {"id": "Disclosure_Norm", "label": "Disclosure to Information Norm", "canonical_name": "Disclosure to Information Norm", "aliases": [], "properties": {"definition": "Policy shall be void and premium forfeited in case of misrepresentation, mis-description, or non-disclosure of material facts."}}, {"id": "Emergency_Care", "label": "Emergency Care", "canonical_name": "Emergency Care", "aliases": [], "properties": {"definition": "Management for severe illness or injury requiring immediate care to prevent death or serious impairment."}}, {"id": "Family_Member", "label": "Family Member", "canonical_name": "Family Member", "aliases": [], "properties": {"definition": "For family discount: legally married spouse, children, parents, siblings, in-laws, grandparents, grandchildren.", "definition_floater": "For family floater: legally married spouse, children, parents."}}, {"id": "Grace_Period", "label": "Grace Period", "canonical_name": "Grace Period", "aliases": [], "properties": {"definition": "Specified period after premium due date for renewal without loss of continuity benefits."}}, {"id": "Hospitalization", "label": "Hospitalization", "canonical_name": "Hospitalization", "aliases": [], "properties": {"definition": "Admission in a hospital for a minimum period of 24 in-patient care consecutive hours."}}, {"id": "Hospital", "label": "Hospital", "canonical_name": "Hospital", "aliases": [], "properties": {"definition": "Institution established for in-patient care and day care treatment, registered under Clinical Establishments Act or equivalent."}}, {"id": "Illness", "label": "Illness", "canonical_name": "Illness", "aliases": [], "properties": {"definition": "Sickness, disease, or pathological condition impairing normal physiological function.", "subtypes": ["Acute Condition", "Chronic Condition"]}}, {"id": "Injury", "label": "Injury", "canonical_name": "Injury", "aliases": [], "properties": {"definition": "Accidental physical bodily harm excluding illness, caused by external, violent, and visible means."}}, {"id": "In_Patient_Care", "label": "In-patient Care", "canonical_name": "In-patient Care", "aliases": [], "properties": {"definition": "Treatment requiring stay in a hospital for more than 24 hours for a covered event."}}, {"id": "Insured", "label": "Insured", "canonical_name": "Insured", "aliases": [], "properties": {"definition": "Individual named in the schedule as the policyholder."}}, {"id": "Insured_Persons", "label": "Insured Persons", "canonical_name": "Insured Persons", "aliases": [], "properties": {"definition": "Individual(s) named in the schedule, including spouse, dependent children, and/or parents."}}, {"id": "Intensive_Care_Unit", "label": "Intensive Care Unit", "canonical_name": "Intensive Care Unit", "aliases": [], "properties": {"definition": "Section of a hospital under constant supervision, equipped for continuous monitoring and treatment of critical patients."}}], "edges": [{"id": "USGICL_Policy_Complete_Healthcare_ISSUES", "from": "USGICL", "to": "Policy_Complete_Healthcare", "type": "ISSUES", "evidence": "Policy document header and footer", "timestamp": "2023-10-01"}, {"id": "Sharad_Mathur_USGICL_HAS_ROLE", "from": "Sharad_Mathur", "to": "USGICL", "type": "HAS_ROLE", "evidence": "Signature block in the policy document", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Accident_DEFINES", "from": "Policy_Complete_Healthcare", "to": "Accident", "type": "DEFINES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Any_One_Illness_DEFINES", "from": "Policy_Complete_Healthcare", "to": "Any_One_Illness", "type": "DEFINES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Adventure_Sports_EXCLUDES", "from": "Policy_Complete_Healthcare", "to": "Adventure_Sports", "type": "EXCLUDES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Alternative_Treatment_COVERS", "from": "Policy_Complete_Healthcare", "to": "Alternative_Treatment", "type": "COVERS", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Break_In_Policy_DEFINES", "from": "Policy_Complete_Healthcare", "to": "Break_In_Policy", "type": "DEFINES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Cashless_Facility_PROVIDES", "from": "Policy_Complete_Healthcare", "to": "Cashless_Facility", "type": "PROVIDES", "evidence": "Definitions and coverage sections of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Condition_Precedent_INCLUDES", "from": "Policy_Complete_Healthcare", "to": "Condition_Precedent", "type": "INCLUDES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Congenital_Anomaly_EXCLUDES", "from": "Policy_Complete_Healthcare", "to": "Congenital_Anomaly", "type": "EXCLUDES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Contribution_INCLUDES", "from": "Policy_Complete_Healthcare", "to": "Contribution", "type": "INCLUDES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Co_Pay_INCLUDES", "from": "Policy_Complete_Healthcare", "to": "Co_Pay", "type": "INCLUDES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Cumulative_Bonus_PROVIDES", "from": "Policy_Complete_Healthcare", "to": "Cumulative_Bonus", "type": "PROVIDES", "evidence": "Definitions and benefits sections of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Day_Care_Treatment_COVERS", "from": "Policy_Complete_Healthcare", "to": "Day_Care_Treatment", "type": "COVERS", "evidence": "Definitions and coverage sections of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Dental_Treatment_COVERS", "from": "Policy_Complete_Healthcare", "to": "Dental_Treatment", "type": "COVERS", "evidence": "Definitions and coverage sections of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Domiciliary_Treatment_COVERS", "from": "Policy_Complete_Healthcare", "to": "Domiciliary_Treatment", "type": "COVERS", "evidence": "Definitions and coverage sections of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Disclosure_Norm_INCLUDES", "from": "Policy_Complete_Healthcare", "to": "Disclosure_Norm", "type": "INCLUDES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Emergency_Care_COVERS", "from": "Policy_Complete_Healthcare", "to": "Emergency_Care", "type": "COVERS", "evidence": "Definitions and coverage sections of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Family_Member_DEFINES", "from": "Policy_Complete_Healthcare", "to": "Family_Member", "type": "DEFINES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Grace_Period_INCLUDES", "from": "Policy_Complete_Healthcare", "to": "Grace_Period", "type": "INCLUDES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Hospitalization_DEFINES", "from": "Policy_Complete_Healthcare", "to": "Hospitalization", "type": "DEFINES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Hospital_DEFINES", "from": "Policy_Complete_Healthcare", "to": "Hospital", "type": "DEFINES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Illness_DEFINES", "from": "Policy_Complete_Healthcare", "to": "Illness", "type": "DEFINES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Injury_DEFINES", "from": "Policy_Complete_Healthcare", "to": "Injury", "type": "DEFINES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_In_Patient_Care_DEFINES", "from": "Policy_Complete_Healthcare", "to": "In_Patient_Care", "type": "DEFINES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Insured_DEFINES", "from": "Policy_Complete_Healthcare", "to": "Insured", "type": "DEFINES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Insured_Persons_DEFINES", "from": "Policy_Complete_Healthcare", "to": "Insured_Persons", "type": "DEFINES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}, {"id": "Policy_Complete_Healthcare_Intensive_Care_Unit_DEFINES", "from": "Policy_Complete_Healthcare", "to": "Intensive_Care_Unit", "type": "DEFINES", "evidence": "Definitions section of the policy", "timestamp": "2023-10-01"}]};
+
+        console.log("Raw Data Loaded:", rawData);
+
+        const nodeColors = {
+            'person': { background: '#1e1b4b', border: '#6366f1', highlight: { background: '#312e81', border: '#818cf8' } },
+            'policyholder': { background: '#1e1b4b', border: '#6366f1', highlight: { background: '#312e81', border: '#818cf8' } },
+            'policy': { background: '#082f49', border: '#0ea5e9', highlight: { background: '#0c4a6e', border: '#38bdf8' } },
+            'insurance_policy': { background: '#082f49', border: '#0ea5e9', highlight: { background: '#0c4a6e', border: '#38bdf8' } },
+            'claim': { background: '#450a0a', border: '#ef4444', highlight: { background: '#7f1d1d', border: '#f87171' } },
+            'incident': { background: '#450a0a', border: '#ef4444', highlight: { background: '#7f1d1d', border: '#f87171' } },
+            'benefit': { background: '#022c22', border: '#10b981', highlight: { background: '#064e3b', border: '#34d399' } },
+            'coverage': { background: '#022c22', border: '#10b981', highlight: { background: '#064e3b', border: '#34d399' } },
+            'company': { background: '#451a03', border: '#f59e0b', highlight: { background: '#78350f', border: '#fbbf24' } },
+            'insurer': { background: '#451a03', border: '#f59e0b', highlight: { background: '#78350f', border: '#fbbf24' } },
+            'default': { background: '#2e1065', border: '#8b5cf6', highlight: { background: '#4c1d95', border: '#a78bfa' } }
+        };
+
+        // Format data for Vis.js
+        const nodesArray = rawData.nodes.map(n => {
+            // n.label is the entity type (e.g. "Coverage", "Policy", "Person")
+            // n.canonical_name is the display name
+            const entityType = (n.label || '').toLowerCase().replace(/[^a-z_]/g, '_');
+            const colorScheme = nodeColors[entityType] || nodeColors['default'];
+            
+            // Shorten long canonical names for display
+            const displayLabel = n.canonical_name && n.canonical_name.length > 30
+                ? n.canonical_name.substring(0, 28) + '…'
+                : (n.canonical_name || n.id);
+            
+            return {
+                id: n.id,
+                label: displayLabel,
+                title: `<b>${n.canonical_name}</b><br/>Type: ${n.label}`,
+                shape: 'dot',
+                size: 20,
+                color: {
+                    background: colorScheme.background,
+                    border: colorScheme.border,
+                    highlight: colorScheme.highlight
+                },
+                font: {
+                    color: '#f3f4f6',
+                    size: 12,
+                    face: 'Outfit'
+                },
+                borderWidth: 2,
+                shadow: true,
+                raw: n
+            };
+        });
+
+        const edgesArray = rawData.edges.map(e => {
+            return {
+                id: e.id,
+                from: e.from,
+                to: e.to,
+                label: e.type,
+                font: {
+                    color: '#9ca3af',
+                    size: 10,
+                    face: 'Outfit',
+                    strokeWidth: 0,
+                    align: 'middle'
+                },
+                color: {
+                    color: '#4b5563',
+                    highlight: '#60a5fa',
+                    hover: '#93c5fd'
+                },
+                arrows: {
+                    to: { enabled: true, scaleFactor: 0.5 }
+                },
+                width: 1.5,
+                smooth: { type: 'cubicBezier', roundness: 0.5 },
+                shadow: true,
+                raw: e
+            };
+        });
+
+        // Set Stats
+        document.getElementById('stats-nodes').innerText = nodesArray.length;
+        document.getElementById('stats-edges').innerText = edgesArray.length;
+
+        // Initialize Vis Network
+        const container = document.getElementById('network-container');
+        const data = {
+            nodes: new vis.DataSet(nodesArray),
+            edges: new vis.DataSet(edgesArray)
+        };
+
+        const options = {
+            physics: {
+                enabled: true,
+                solver: 'forceAtlas2Based',
+                forceAtlas2Based: {
+                    gravitationalConstant: -50,
+                    centralGravity: 0.01,
+                    springLength: 100,
+                    springConstant: 0.08,
+                    damping: 0.4
+                },
+                stabilization: {
+                    enabled: true,
+                    iterations: 150,
+                    updateInterval: 25
+                }
+            },
+            interaction: {
+                hover: true,
+                selectConnectedEdges: true
+            }
+        };
+
+        const network = new vis.Network(container, data, options);
+
+        let physicsEnabled = true;
+        const btnPhysics = document.getElementById('btn-physics');
+        btnPhysics.addEventListener('click', () => {
+            physicsEnabled = !physicsEnabled;
+            network.setOptions({ physics: { enabled: physicsEnabled } });
+            if (physicsEnabled) {
+                btnPhysics.innerText = "Freeze Layout";
+                btnPhysics.classList.remove('bg-red-500/20', 'text-red-400', 'border-red-500/30');
+                btnPhysics.classList.add('bg-blue-500/20', 'text-blue-400', 'border-blue-500/30');
+            } else {
+                btnPhysics.innerText = "Unfreeze Layout";
+                btnPhysics.classList.remove('bg-blue-500/20', 'text-blue-400', 'border-blue-500/30');
+                btnPhysics.classList.add('bg-red-500/20', 'text-red-400', 'border-red-500/30');
+            }
+        });
+
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            network.fit({ animation: { duration: 1000, easingFunction: 'easeInOutQuad' } });
+        });
+
+        document.getElementById('btn-close-details').addEventListener('click', () => {
+            closeDetails();
+        });
+
+        // Search highlight
+        const searchInput = document.getElementById('search-input');
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            if (!query) {
+                // Reset sizes/borderWidths
+                data.nodes.update(nodesArray);
+                return;
+            }
+
+            const matchedNodeIds = [];
+            const updatedNodes = nodesArray.map(n => {
+                const nameMatch = n.label.toLowerCase().includes(query);
+                const typeMatch = (n.raw.label || '').toLowerCase().includes(query);
+                const propsMatch = Object.entries(n.raw.properties || {}).some(
+                    ([key, val]) => String(val).toLowerCase().includes(query)
+                );
+
+                if (nameMatch || typeMatch || propsMatch) {
+                    matchedNodeIds.push(n.id);
+                    return { ...n, size: 28, borderWidth: 4 };
+                } else {
+                    return { ...n, size: 12, borderWidth: 1 };
+                }
+            });
+
+            data.nodes.update(updatedNodes);
+
+            if (matchedNodeIds.length > 0) {
+                // Focus on the first matched node
+                network.focus(matchedNodeIds[0], {
+                    scale: 1.0,
+                    animation: { duration: 500, easingFunction: 'easeInOutQuad' }
+                });
+                
+                // Show details if exactly one match
+                if (matchedNodeIds.length === 1) {
+                    const matchedNode = rawData.nodes.find(n => n.id === matchedNodeIds[0]);
+                    showNodeDetails(matchedNode);
+                }
+            }
+        });
+
+        // Click actions
+        network.on("selectNode", (params) => {
+            const nodeId = params.nodes[0];
+            const node = rawData.nodes.find(n => n.id === nodeId);
+            if (node) showNodeDetails(node);
+        });
+
+        network.on("selectEdge", (params) => {
+            // Only trigger if no node is selected
+            if (params.nodes.length === 0) {
+                const edgeId = params.edges[0];
+                const edge = rawData.edges.find(e => e.id === edgeId);
+                if (edge) showEdgeDetails(edge);
+            }
+        });
+
+        network.on("deselectNode", () => {
+            closeDetails();
+        });
+
+        network.on("deselectEdge", () => {
+            closeDetails();
+        });
+
+        function showNodeDetails(node) {
+            const panel = document.getElementById('details-panel');
+            panel.classList.remove('hidden');
+            setTimeout(() => {
+                panel.classList.remove('translate-y-4', 'opacity-0');
+            }, 50);
+
+            document.getElementById('details-title').innerText = node.canonical_name;
+            const typeLabel = document.getElementById('details-type');
+            typeLabel.innerText = node.label || 'Entity';
+            
+            // Color tag based on label
+            const labelLower = (node.label || '').toLowerCase();
+            typeLabel.className = "inline-block mt-1 px-2.5 py-0.5 text-[10px] font-bold rounded uppercase tracking-wider ";
+            if (labelLower === 'person' || labelLower === 'policyholder') typeLabel.classList.add('bg-pink-500/20', 'text-pink-400', 'border', 'border-pink-500/30');
+            else if (labelLower === 'policy' || labelLower === 'insurance_policy') typeLabel.classList.add('bg-blue-500/20', 'text-blue-400', 'border', 'border-blue-500/30');
+            else if (labelLower === 'claim' || labelLower === 'incident') typeLabel.classList.add('bg-red-500/20', 'text-red-400', 'border', 'border-red-500/30');
+            else if (labelLower === 'benefit' || labelLower === 'coverage') typeLabel.classList.add('bg-emerald-500/20', 'text-emerald-400', 'border', 'border-emerald-500/30');
+            else if (labelLower === 'company' || labelLower === 'insurer') typeLabel.classList.add('bg-amber-500/20', 'text-amber-400', 'border', 'border-amber-500/30');
+            else typeLabel.classList.add('bg-purple-500/20', 'text-purple-400', 'border', 'border-purple-500/30');
+
+            // Render properties
+            const body = document.getElementById('details-body');
+            body.innerHTML = '';
+
+            // Aliases if any
+            if (node.aliases && node.aliases.length > 0) {
+                body.appendChild(createPropRow('Aliases', node.aliases.join(', ')));
+            }
+
+            // Other dynamic properties
+            const props = node.properties || {};
+            const keys = Object.keys(props).sort();
+            
+            if (keys.length === 0 && (!node.aliases || node.aliases.length === 0)) {
+                body.innerHTML = '<div class="text-xs text-gray-500 italic">No additional properties for this entity.</div>';
+            } else {
+                keys.forEach(k => {
+                    let val = props[k];
+                    if (typeof val === 'object') val = JSON.stringify(val);
+                    // Format key nicely
+                    const displayKey = k.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+                    body.appendChild(createPropRow(displayKey, val));
+                });
+            }
+        }
+
+        function showEdgeDetails(edge) {
+            const panel = document.getElementById('details-panel');
+            panel.classList.remove('hidden');
+            setTimeout(() => {
+                panel.classList.remove('translate-y-4', 'opacity-0');
+            }, 50);
+
+            document.getElementById('details-title').innerText = `${edge.from} ➔ ${edge.to}`;
+            const typeLabel = document.getElementById('details-type');
+            typeLabel.innerText = edge.type || 'RELATIONSHIP';
+            typeLabel.className = "inline-block mt-1 px-2.5 py-0.5 text-[10px] font-bold rounded uppercase tracking-wider bg-gray-500/20 text-gray-300 border border-gray-500/30";
+
+            const body = document.getElementById('details-body');
+            body.innerHTML = '';
+
+            body.appendChild(createPropRow('From Entity', edge.from));
+            body.appendChild(createPropRow('To Entity', edge.to));
+            body.appendChild(createPropRow('Relationship Type', edge.type));
+            
+            if (edge.timestamp) body.appendChild(createPropRow('Occurrence Time', edge.timestamp));
+            if (edge.evidence) body.appendChild(createPropRow('Supporting Evidence', edge.evidence));
+        }
+
+        function createPropRow(key, val) {
+            const div = document.createElement('div');
+            div.className = "flex flex-col gap-1 bg-white/5 rounded-lg p-2 border border-white/5";
+            div.innerHTML = `
+                <span class="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">${key}</span>
+                <span class="text-xs text-gray-200">${val}</span>
+            `;
+            return div;
+        }
+
+        function closeDetails() {
+            const panel = document.getElementById('details-panel');
+            panel.classList.add('translate-y-4', 'opacity-0');
+            setTimeout(() => {
+                panel.classList.add('hidden');
+            }, 300);
+        }
+
+        // Export PNG functionality
+        document.getElementById('btn-export').addEventListener('click', () => {
+            // Temporarily freeze layout for export
+            const isPhysics = physicsEnabled;
+            if (isPhysics) network.setOptions({ physics: { enabled: false } });
+
+            setTimeout(() => {
+                const canvas = container.getElementsByTagName('canvas')[0];
+                if (canvas) {
+                    const link = document.createElement('a');
+                    link.download = 'sentinel_knowledge_graph.png';
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                }
+                
+                // Restore physics
+                if (isPhysics) network.setOptions({ physics: { enabled: true } });
+            }, 100);
+        });
+    </script>
+</body>
+</html>

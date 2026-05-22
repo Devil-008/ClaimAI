@@ -1,0 +1,72 @@
+/* ── TopBar ── */
+.topbar {
+  height: 64px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  background: var(--bg-card);
+  flex-shrink: 0;
+}
+.topbar-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.topbar-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 12px;
+}
+.topbar-search input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 0.83rem;
+  width: 160px;
+}
+.topbar-search input::placeholder { color: var(--text-dim); }
+
+.topbar-icon-btn {
+  position: relative;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+.topbar-icon-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+}
+.notif-badge {
+  position: absolute;
+  top: -4px; right: -4px;
+  background: var(--danger);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--bg-card);
+}
+.topbar-greeting {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.topbar-greeting strong { color: var(--text); }
