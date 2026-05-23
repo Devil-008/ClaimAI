@@ -1,5 +1,5 @@
 import os, string, random
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -34,6 +34,10 @@ class ClaimOut(BaseModel):
     policy_coverage_limit: float | None = None
     policy_total_settled_amount: float | None = None
     policy_remaining_capacity: float | None = None
+    document_request_count: int | None = 0
+    document_request_message: str | None = None
+    document_request_by_role: str | None = None
+    status_before_doc_request: str | None = None
 
     class Config:
         from_attributes = True
@@ -64,6 +68,10 @@ class ClaimDecisionPayload(BaseModel):
     action: str  # "approve" | "reject" | "partial_approve"
     notes: Optional[str] = None
     amount: Optional[float] = None
+
+
+class RequestDocumentsPayload(BaseModel):
+    message: str
 
 
 class ClaimDecisionOut(BaseModel):
@@ -482,3 +490,206 @@ def get_specific_claim_document(
         filename=doc.filename,
         content_disposition_type="attachment" if download else "inline",
     )
+
+
+@router.post("/{claim_id}/request-documents", response_model=ClaimOut)
+def request_more_documents(
+    claim_id: int,
+    payload: RequestDocumentsPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ALLOWED = {"adjuster", "siu_investigator", "supervisor", "admin"}
+    if current_user.role not in ALLOWED:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+
+    current_count = claim.document_request_count or 0
+    if current_count >= 3:
+        # Escalate directly to SIU Investigator
+        claim.status = "escalated_siu"
+        claim.escalation_level = 0
+        claim.escalation_started_at = None
+        claim.escalation_next_check_at = None
+        claim.escalation_last_notified_at = None
+        claim.document_request_message = None
+
+        db.commit()
+
+        # Notify claimant via email
+        notify_claimant_update(
+            db,
+            claim,
+            subject=f"Claim {claim.claim_number} escalated to SIU",
+            body=(
+                f"Hello,\n\n"
+                f"Your claim {claim.claim_number} has exceeded the maximum number of document requests (3) "
+                f"and has been escalated to the SIU investigator for manual investigation and re-verification.\n"
+            ),
+            event_type="siu_escalation_limit_exceeded",
+            source_status="escalated_siu",
+            trigger_reason="Maximum document request limit reached (3 times)."
+        )
+
+        # Trigger email to SIU Investigator
+        from app.services.email_escalation_service import notify_claim_escalation
+        notify_claim_escalation(db, claim)
+
+        db.commit()
+        return claim
+
+    claim.status_before_doc_request = claim.status
+    claim.status = "documents_required"
+    claim.document_request_message = payload.message
+    claim.document_request_by_role = current_user.role
+    claim.document_request_count = current_count + 1
+
+    db.commit()
+
+    # Send email to policyholder
+    notify_claimant_update(
+        db,
+        claim,
+        subject=f"Action Required: Documents needed for claim {claim.claim_number}",
+        body=(
+            f"Hello,\n\n"
+            f"The claims reviewer has requested additional documents to process your claim {claim.claim_number}.\n\n"
+            f"Request Details:\n"
+            f"\"{payload.message}\"\n\n"
+            f"Please upload the required documents through your claims portal as soon as possible to proceed with your claim.\n"
+        ),
+        event_type=f"document_request_{claim.document_request_count}",
+        source_status="documents_required",
+        trigger_reason=payload.message
+    )
+
+    db.commit()
+    return claim
+
+
+@router.post("/{claim_id}/upload-more-documents", response_model=ClaimOut)
+async def upload_more_documents(
+    claim_id: int,
+    files: List[UploadFile] = File(default=[]),
+    file: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "policyholder":
+        raise HTTPException(status_code=403, detail="Only policyholders can upload documents")
+
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+
+    if claim.status != "documents_required":
+        raise HTTPException(status_code=400, detail="Documents are not currently requested for this claim")
+
+    uploaded_files = []
+    if files:
+        uploaded_files.extend(files)
+    if file:
+        uploaded_files.append(file)
+
+    if not uploaded_files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+
+    # Import validation, extraction and config helpers
+    from app.controllers.fnol_controller import UPLOAD_DIR, _validate_upload
+    from app.controllers.policy_controller import _extract_text
+    from app.core.config import settings
+    import uuid
+    import httpx
+    import json
+
+    saved_paths = []
+    combined_text = ""
+    saved_files_info = []
+
+    for f in uploaded_files:
+        ext = os.path.splitext(f.filename)[1].lower() or ".pdf"
+        content = await f.read()
+        _validate_upload(content, f.filename)
+
+        fname = f"temp_{uuid.uuid4()}{ext}"
+        fpath = os.path.join(UPLOAD_DIR, fname)
+        with open(fpath, "wb") as out:
+            out.write(content)
+        saved_paths.append(fpath)
+
+        raw_text = _extract_text(fpath, ext)
+        if not raw_text:
+            raw_text = content.decode("utf-8", errors="ignore")
+
+        saved_files_info.append({
+            "filename": f.filename,
+            "fpath": fpath,
+            "ext": ext,
+            "raw_text": raw_text
+        })
+        combined_text += f"\n--- DOCUMENT: {f.filename} ---\n{raw_text}\n"
+
+    # Classify files category
+    categories_by_filename = {}
+    if settings.MISTRAL_API_KEY:
+        prompt = """You are a Claims intake helper. Given list of filenames and their snippets, classify each file into one of: 'claim_form', 'medical_report', 'test_report', 'id_card', 'other'.
+        Return JSON object with "documents": [{"filename": "...", "category": "..."}]"""
+        try:
+            truncated = combined_text[:4000]
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    "https://api.mistral.ai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings.MISTRAL_API_KEY.strip()}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "mistral-small-latest",
+                        "response_format": {"type": "json_object"},
+                        "messages": [
+                            {"role": "system", "content": prompt},
+                            {"role": "user", "content": truncated},
+                        ],
+                    },
+                )
+                if resp.status_code == 200:
+                    res_json = resp.json()
+                    docs_extracted = json.loads(res_json["choices"][0]["message"]["content"]).get("documents", [])
+                    for d in docs_extracted:
+                        categories_by_filename[d["filename"].lower()] = d.get("category", "other")
+        except Exception:
+            pass
+
+    # Save to ClaimDocument DB
+    for info in saved_files_info:
+        cat = categories_by_filename.get(info["filename"].lower(), "other")
+        if cat not in ("claim_form", "medical_report", "test_report", "id_card", "other"):
+            cat = "other"
+
+        claim_doc = ClaimDocument(
+            claim_id=claim.id,
+            policy_id=claim.policy_id,
+            user_id=current_user.id,
+            filename=info["filename"],
+            file_path=info["fpath"],
+            category=cat,
+            raw_text=info["raw_text"],
+            extracted_data={}
+        )
+        db.add(claim_doc)
+
+    # Revert back status or fallback
+    back_status = claim.status_before_doc_request or "escalated_adjuster"
+    if back_status in ("documents_required", "fnol_received", "settled", "rejected", "closed"):
+        back_status = "escalated_adjuster"
+
+    claim.status = back_status
+    claim.status_before_doc_request = None
+    claim.document_request_message = None
+
+    db.commit()
+    db.refresh(claim)
+    return claim

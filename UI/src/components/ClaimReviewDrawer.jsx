@@ -46,6 +46,8 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
   const [acting,           setActing]           = useState(null)  // 'approve' | 'reject' | 'partial_approve'
   const [showPartialInput, setShowPartialInput] = useState(false)
   const [customAmount,     setCustomAmount]     = useState('')
+  const [showRequestInput, setShowRequestInput] = useState(false)
+  const [requestMessage,   setRequestMessage]   = useState('')
   const [documents,        setDocuments]        = useState([])
 
   useEffect(() => {
@@ -88,6 +90,27 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Action failed')
     } finally { setActing(null) }
+  }
+
+  async function handleRequestDocuments() {
+    if (!requestMessage.trim()) return toast.error('Please enter details of the requested documents')
+    setActing('request')
+    try {
+      const res = await api.post(`/claims/${claimId}/request-documents`, { message: requestMessage })
+      toast.success(
+        res.data.status === 'escalated_siu'
+          ? '⚠️ Max request limit exceeded. Claim escalated to SIU Investigator!'
+          : '📧 Document request sent to claimant!'
+      )
+      onDecision?.(res.data)
+      onClose()
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to request documents')
+    } finally {
+      setActing(null)
+      setShowRequestInput(false)
+      setRequestMessage('')
+    }
   }
 
   const trace    = pipeline?.pipeline_trace || []
@@ -457,6 +480,76 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
                             <><Loader2 size={14} className="spin"/> Submitting…</>
                           ) : (
                             user?.role === 'adjuster' ? <>Confirm Recommendation</> : <>Confirm Partial Approval</>
+                          )}
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <button
+                    className="btn-primary"
+                    disabled={!!acting}
+                    onClick={() => { setShowRequestInput(!showRequestInput); setShowPartialInput(false); }}
+                    style={{
+                      width: '100%', gap: 8,
+                      background: 'linear-gradient(135deg,#3B82F6,#2563EB)', borderColor: '#3B82F6',
+                      boxShadow: showRequestInput ? 'inset 0 2px 4px rgba(0,0,0,0.4)' : 'none',
+                      border: showRequestInput ? '1.5px solid var(--text)' : '1px solid transparent'
+                    }}
+                  >
+                    <FileText size={14}/>
+                    {showRequestInput ? 'Cancel Request' : 'Request More Info'}
+                  </button>
+
+                  <AnimatePresence>
+                    {showRequestInput && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        style={{
+                          background: 'rgba(59, 130, 246, 0.05)',
+                          border: '1px solid rgba(59, 130, 246, 0.25)',
+                          borderRadius: 8,
+                          padding: 16,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 12,
+                          overflow: 'hidden'
+                        }}
+                      >
+                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#3B82F6', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          What documents are required?
+                        </div>
+                        <textarea
+                          value={requestMessage}
+                          onChange={e => setRequestMessage(e.target.value)}
+                          placeholder="Describe the additional documents required (e.g. Please upload original pathology test report)..."
+                          rows={3}
+                          style={{
+                            width: '100%', boxSizing: 'border-box', resize: 'vertical',
+                            background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: 6, padding: '10px 12px', color: 'var(--text)', fontSize: '0.84rem',
+                            outline: 'none', fontFamily: 'inherit', lineHeight: 1.5,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          disabled={!!acting || !requestMessage.trim()}
+                          onClick={handleRequestDocuments}
+                          style={{
+                            background: 'linear-gradient(135deg,#3B82F6,#2563EB)',
+                            borderColor: '#2563EB',
+                            width: '100%',
+                            gap: 6
+                          }}
+                        >
+                          {acting === 'request' ? (
+                            <><Loader2 size={14} className="spin"/> Sending…</>
+                          ) : (
+                            <>Send Request (Attempt {Number(claim.document_request_count || 0) + 1}/3)</>
                           )}
                         </button>
                       </motion.div>
