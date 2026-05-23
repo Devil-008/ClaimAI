@@ -22,6 +22,9 @@ from app.database.connection import get_db
 from app.models.models import Policy, Claim, FNOLSubmission, FraudRiskScore, DamageAssessment, PipelineTrace, Settlement, AuditLog
 from app.controllers.auth_controller import get_current_user, User
 from app.core.config import settings
+from app.services.vector_store_service import VectorStoreService
+
+_vector_store = VectorStoreService()
 
 router = APIRouter(prefix="/policies", tags=["Policies"])
 
@@ -100,6 +103,45 @@ def _policy_out(p: Policy, db: Optional[Session] = None) -> dict:
 def _ensure_owner(policy: Policy, user: User):
     if policy.policyholder_id != user.id:
         raise HTTPException(403, "Access denied")
+
+
+def _index_policy_in_chroma(policy: Policy, raw_text: str):
+    """Index the policy document text into Chroma DB with per-user metadata."""
+    try:
+        if not raw_text or not raw_text.strip():
+            return
+        # Remove old chunks for this policy doc first (avoid duplicates on edit)
+        doc_vector_id = f"policy_{policy.id}"
+        try:
+            _vector_store.collection.delete(where={"policy_doc_id": doc_vector_id})
+        except Exception:
+            pass
+        chunks = _vector_store.chunk_text(raw_text)
+        for idx, chunk in enumerate(chunks):
+            embedding = _vector_store.generate_embedding(chunk)
+            chunk_id = f"{doc_vector_id}_chunk_{idx}"
+            _vector_store.collection.add(
+                ids=[chunk_id],
+                documents=[chunk],
+                embeddings=[embedding],
+                metadatas=[{
+                    "policy_doc_id": doc_vector_id,
+                    "document_id": str(policy.id),
+                    "filename": f"policy_{policy.policy_number}.pdf",
+                    "chunk_index": idx,
+                    "is_public": "false",
+                    "policy_id": str(policy.id),
+                    "user_id": str(policy.policyholder_id),
+                    "doc_type": "policy_document"
+                }]
+            )
+        logger.info(f"Indexed {len(chunks)} policy chunks for policy_id={policy.id} user_id={policy.policyholder_id}")
+    except Exception as e:
+        logger.error(f"Failed to index policy {policy.id} in Chroma: {e}")
+
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 # ── PDF/DOC text extraction ───────────────────────────────────
@@ -1190,7 +1232,12 @@ def policy_detail(policy_id: int, db: Session = Depends(get_db), user: User = De
 
 
 @router.post("/add-manual", summary="Add policy manually")
-def add_manual(payload: PolicyManualPayload, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def add_manual(
+    payload: PolicyManualPayload,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    raw_text: str = "",  # passed internally from confirm_upload
+):
     if user.role != "policyholder":
         raise HTTPException(403, "Only policyholders can add policies")
 
@@ -1230,6 +1277,50 @@ def add_manual(payload: PolicyManualPayload, db: Session = Depends(get_db), user
     db.add(p)
     db.commit()
     db.refresh(p)
+
+    # ── Index policy content into Chroma DB for RAG chat ─────────
+    # Build indexable text from whichever source is available:
+    # 1. raw_text passed from confirm_upload (full OCR'd text)
+    # 2. benefits + exclusions + extra_details fields (manual entry fallback)
+    index_text = raw_text.strip()
+    if not index_text:
+        parts = []
+        if p.policyholder_name:
+            parts.append(f"Policyholder: {p.policyholder_name}")
+        if p.insurance_company:
+            parts.append(f"Insurance Company: {p.insurance_company}")
+        if p.plan_name:
+            parts.append(f"Plan: {p.plan_name}")
+        if p.policy_type:
+            parts.append(f"Policy Type: {p.policy_type}")
+        if p.coverage_limit:
+            parts.append(f"Coverage Limit: INR {p.coverage_limit}")
+        if p.effective_date:
+            parts.append(f"Effective Date: {p.effective_date}")
+        if p.expiry_date:
+            parts.append(f"Expiry Date: {p.expiry_date}")
+        if p.benefits:
+            parts.append(f"Benefits: {p.benefits}")
+        if p.exclusions:
+            parts.append(f"Exclusions: {p.exclusions}")
+        if p.extra_details:
+            try:
+                import json as _json
+                details = _json.loads(p.extra_details)
+                # Add human-readable summary if available
+                easy = details.get("human_friendly_summary", {}).get("easy_summary", {})
+                if easy:
+                    parts.append(f"What is covered: {', '.join(easy.get('what_is_covered', []))}")
+                    parts.append(f"What is NOT covered: {', '.join(easy.get('what_is_not_covered', []))}")
+                    parts.append(f"Important Limits: {', '.join(easy.get('important_limits', []))}")
+                    parts.append(f"Claim Process: {easy.get('claim_process_summary', '')}")
+            except Exception:
+                pass
+        index_text = "\n".join(parts)
+
+    _index_policy_in_chroma(p, index_text)
+    # ─────────────────────────────────────────────────────────────
+
     return {"message": "Policy added successfully", "policy": _policy_out(p, db)}
 
 
@@ -1265,6 +1356,7 @@ async def upload_policy_doc(
 
     extracted = await _extract_policy_fields(raw_text, file.filename)
     extracted["raw_text_preview"] = raw_text[:1500]
+    extracted["raw_text_full"] = raw_text          # full text for Chroma indexing on confirm
     extracted["file_path"] = fpath   # pass back so confirm-upload can store it
 
     return {
@@ -1274,9 +1366,20 @@ async def upload_policy_doc(
     }
 
 
+class ConfirmUploadPayload(PolicyManualPayload):
+    """Extends PolicyManualPayload with raw_text from OCR for Chroma indexing."""
+    raw_text: Optional[str] = None
+
+
 @router.post("/confirm-upload", summary="Confirm OCR-extracted policy and save")
-def confirm_upload(payload: PolicyManualPayload, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return add_manual(payload, db, user)
+def confirm_upload(payload: ConfirmUploadPayload, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    raw_text = payload.raw_text or ""
+    return add_manual(
+        PolicyManualPayload(**{k: v for k, v in payload.dict().items() if k != "raw_text"}),
+        db,
+        user,
+        raw_text=raw_text,
+    )
 
 
 # ── Edit policy ────────────────────────────────────────────────
@@ -1316,6 +1419,31 @@ def edit_policy(
 
     db.commit()
     db.refresh(p)
+
+    # Re-index into Chroma DB with updated policy fields
+    parts = []
+    if p.policyholder_name:   parts.append(f"Policyholder: {p.policyholder_name}")
+    if p.insurance_company:   parts.append(f"Insurance Company: {p.insurance_company}")
+    if p.plan_name:           parts.append(f"Plan: {p.plan_name}")
+    if p.policy_type:         parts.append(f"Policy Type: {p.policy_type}")
+    if p.coverage_limit:      parts.append(f"Coverage Limit: INR {p.coverage_limit}")
+    if p.effective_date:      parts.append(f"Effective Date: {p.effective_date}")
+    if p.expiry_date:         parts.append(f"Expiry Date: {p.expiry_date}")
+    if p.benefits:            parts.append(f"Benefits: {p.benefits}")
+    if p.exclusions:          parts.append(f"Exclusions: {p.exclusions}")
+    if p.extra_details:
+        try:
+            details = json.loads(p.extra_details)
+            easy = details.get("human_friendly_summary", {}).get("easy_summary", {})
+            if easy:
+                parts.append(f"What is covered: {', '.join(easy.get('what_is_covered', []))}")
+                parts.append(f"What is NOT covered: {', '.join(easy.get('what_is_not_covered', []))}")
+                parts.append(f"Important Limits: {', '.join(easy.get('important_limits', []))}")
+                parts.append(f"Claim Process: {easy.get('claim_process_summary', '')}")
+        except Exception:
+            pass
+    _index_policy_in_chroma(p, "\n".join(parts))
+
     return {"message": "Policy updated", "policy": _policy_out(p, db)}
 
 

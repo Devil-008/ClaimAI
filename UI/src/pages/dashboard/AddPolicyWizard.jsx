@@ -293,7 +293,7 @@ export default function AddPolicyWizard() {
       }
       const ext = res.data.extracted
       setExtracted(ext)
-      setRawText(ext.raw_text_preview || '')
+      setRawText(ext.raw_text_full || ext.raw_text_preview || '')  // prefer full text for Chroma indexing
       // Pre-populate form (include file_path so confirm-upload stores it)
       const benefitsStr = Array.isArray(ext.benefits) ? ext.benefits.join('\n') : (ext.benefits || '')
       const exclusionsStr = Array.isArray(ext.exclusions) ? ext.exclusions.join('\n') : (ext.exclusions || '')
@@ -331,13 +331,18 @@ export default function AddPolicyWizard() {
     setLoading(true)
     try {
       const endpoint = extracted ? '/policies/confirm-upload' : '/policies/add-manual'
-      await api.post(endpoint, {
+      const payload = {
         ...formData,
         coverage_limit: Number(formData.coverage_limit),
         deductible:     Number(formData.deductible || 0),
         premium:        Number(formData.premium    || 0),
         date_of_birth:  formData.date_of_birth || null,
-      })
+      }
+      // For confirm-upload, also send the raw OCR text so backend can index into Chroma
+      if (extracted) {
+        payload.raw_text = rawText || ''
+      }
+      await api.post(endpoint, payload)
       toast.success('Policy saved! You can now file claims against it.')
       navigate('/dashboard/policies')
     } catch (err) {
