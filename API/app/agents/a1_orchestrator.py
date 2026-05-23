@@ -103,6 +103,48 @@ def run_pipeline(
         "A4_Damage_Assessment", a4_damage.run, db, claim, a3_result, file_paths
     )
 
+    # ── Coverage Limit Check Gate
+    from sqlalchemy import func
+    from app.models.models import Settlement, Policy
+    total_settled = db.query(func.sum(Settlement.net_payout)).join(Claim, Claim.id == Settlement.claim_id).filter(
+        Claim.policy_id == claim.policy_id,
+        Claim.status == "settled",
+        Claim.id != claim.id
+    ).scalar() or 0.0
+    total_settled = float(total_settled)
+    policy = db.query(Policy).filter(Policy.id == claim.policy_id).first()
+    coverage_limit = float(policy.coverage_limit or 0) if policy else 0.0
+    remaining_capacity = max(0.0, coverage_limit - total_settled)
+    
+    net_estimate = float(a4_result.get("net_estimate", 0))
+    if net_estimate > remaining_capacity:
+        claim.status = "rejected"
+        claim.closed_at = datetime.utcnow()
+        outcome_msg = f"Claim estimate of ₹{net_estimate:,.2f} exceeds remaining policy capacity of ₹{remaining_capacity:,.2f} (Total Settled: ₹{total_settled:,.2f}, Limit: ₹{coverage_limit:,.2f})."
+        notify_claimant_update(
+            db,
+            claim,
+            subject=f"Claim {claim.claim_number} coverage limit exceeded",
+            body=(
+                f"Hello,\n\n"
+                f"Your claim {claim.claim_number} could not proceed because the estimated amount of ₹{net_estimate:,.2f} "
+                f"exceeds the remaining coverage capacity of ₹{remaining_capacity:,.2f} under your policy.\n"
+                f"Policy Limit: ₹{coverage_limit:,.2f}\n"
+                f"Total Settled: ₹{total_settled:,.2f}\n"
+            ),
+            event_type="coverage_limit_exceeded",
+            source_status="rejected",
+            trigger_reason=outcome_msg,
+        )
+        db.commit()
+        return _build_response(
+            claim,
+            trace,
+            started_at,
+            "rejected",
+            outcome_msg,
+        )
+
     # ── A5: Fraud & Risk Scoring
     claim.status = "fraud_scoring"
     db.flush()

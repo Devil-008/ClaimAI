@@ -31,6 +31,9 @@ class ClaimOut(BaseModel):
     adjuster_recommended_action: str | None = None
     adjuster_recommended_amount: float | None = None
     adjuster_recommended_notes: str | None = None
+    policy_coverage_limit: float | None = None
+    policy_total_settled_amount: float | None = None
+    policy_remaining_capacity: float | None = None
 
     class Config:
         from_attributes = True
@@ -107,10 +110,26 @@ def get_claim(
     doc_url = None
     if fnol and fnol.raw_input_path and os.path.exists(fnol.raw_input_path):
         doc_url = f"/api/claims/{claim_id}/document"
+        
+    policy = db.query(Policy).filter(Policy.id == claim.policy_id).first()
+    coverage_limit = float(policy.coverage_limit or 0) if policy else 0.0
+    
+    from sqlalchemy import func
+    from app.models.models import Settlement
+    total_settled = db.query(func.sum(Settlement.net_payout)).join(Claim, Claim.id == Settlement.claim_id).filter(
+        Claim.policy_id == claim.policy_id,
+        Claim.status == "settled"
+    ).scalar() or 0.0
+    total_settled = float(total_settled)
+    remaining_capacity = max(0.0, coverage_limit - total_settled)
+    
     # Build response manually to include extra fields
     out = ClaimOut.model_validate(claim)
     out.incident_description = claim.incident_description
     out.document_url = doc_url
+    out.policy_coverage_limit = coverage_limit
+    out.policy_total_settled_amount = total_settled
+    out.policy_remaining_capacity = remaining_capacity
     return out
 
 

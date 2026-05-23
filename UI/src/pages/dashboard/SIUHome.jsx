@@ -74,7 +74,7 @@ export default function SIUHome() {
     <motion.div initial="hidden" animate="visible" variants={stagger}>
       <motion.div variants={fadeUp} className="page-heading">
         <h1>SIU Investigations</h1>
-        <p>Fraud-flagged cases referred by the AI Fraud &amp; Risk Scoring Agent (A5)</p>
+        <p>Fraud-flagged cases referred by the ClaimAI Fraud &amp; Risk Scoring Agent (A5)</p>
       </motion.div>
 
       <motion.div variants={fadeUp} className="stats-grid">

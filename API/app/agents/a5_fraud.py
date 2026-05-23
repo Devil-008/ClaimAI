@@ -77,15 +77,7 @@ def run(db: Session, claim: Claim, coverage_result: dict, damage_result: dict) -
     coverage_limit = coverage_result.get("coverage_limit", 999_999)
     ABSOLUTE_AUTO_SETTLE_CAP = 50000  # INR
 
-    auto_settle = (
-        (score < FRAUD_THRESHOLDS["auto_settle"])
-        and (not siu_referred)
-        and (len(red_flags) == 0)
-        and (
-            net_estimate <= ABSOLUTE_AUTO_SETTLE_CAP
-            or net_estimate <= coverage_limit * 0.2
-        )
-    )
+    auto_settle = False
 
     result = {
         "agent": "A5_Fraud_Risk_Scoring",

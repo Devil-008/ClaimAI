@@ -154,6 +154,11 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
                     <div style={{ gridColumn:'1/-1' }}>
                       <Field label="Incident Description" value={claim.incident_description}/>
                     </div>
+                    <div style={{ gridColumn:'1/-1', borderTop:'1px dashed rgba(255,255,255,0.08)', marginTop:6, paddingTop:10, display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
+                      <Field label="Policy Limit" value={claim.policy_coverage_limit !== undefined ? `₹${Number(claim.policy_coverage_limit).toLocaleString('en-IN')}` : '—'}/>
+                      <Field label="Total Settled" value={claim.policy_total_settled_amount !== undefined ? `₹${Number(claim.policy_total_settled_amount).toLocaleString('en-IN')}` : '—'}/>
+                      <Field label="Remaining Cover" value={claim.policy_remaining_capacity !== undefined ? `₹${Number(claim.policy_remaining_capacity).toLocaleString('en-IN')}` : '—'} accent={claim.policy_remaining_capacity > 0 ? '#10B981' : '#EF4444'}/>
+                    </div>
                   </div>
                   {claim.document_url && (
                     <a href={`http://localhost:8000${claim.document_url}?token=${JSON.parse(localStorage.getItem('claimai-auth') || '{}')?.state?.token || ''}`} target="_blank" rel="noopener noreferrer"
