@@ -50,14 +50,17 @@ export default function ClaimDetail() {
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState(null)
   const [showTrace, setShowTrace] = useState(true)
+  const [documents, setDocuments] = useState([])
 
   useEffect(() => {
     Promise.all([
       api.get(`/claims/${id}`),
       api.get(`/fnol/${id}/pipeline`).catch(() => ({ data: null })),
-    ]).then(([claimRes, pipeRes]) => {
+      api.get(`/claims/${id}/documents`).catch(() => ({ data: [] })),
+    ]).then(([claimRes, pipeRes, docsRes]) => {
       setClaim(claimRes.data)
       setPipeline(pipeRes.data)
+      setDocuments(docsRes.data || [])
     }).catch(e => setError(e?.response?.data?.detail || 'Claim not found'))
       .finally(() => setLoading(false))
   }, [id])
@@ -138,6 +141,58 @@ export default function ClaimDetail() {
         </motion.div>
       )}
 
+      {/* Uploaded Documents */}
+      {documents.length > 0 && (
+        <motion.div variants={fadeUp} style={{ marginBottom: 24 }}>
+          <div className="dash-section-title"><FileText size={14} color="var(--primary-light)"/> Uploaded Documents</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+            {documents.map((doc) => {
+              const categoryLabels = {
+                claim_form: '📝 Claim Form',
+                medical_report: '🏥 Medical Report',
+                test_report: '🔬 Test Report',
+                id_card: '🆔 ID Card',
+                other: '📄 Other Document'
+              }
+              const token = JSON.parse(localStorage.getItem('claimai-auth') || '{}')?.state?.token || ''
+              const docUrl = `http://localhost:8000/api/claims/${id}/documents/${doc.id}?token=${token}`
+              return (
+                <div key={doc.id} className="stat-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                    <FileText size={20} style={{ color: 'var(--primary-light)', flexShrink: 0 }} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                        {doc.filename}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: 2 }}>
+                        {categoryLabels[doc.category] || doc.category}
+                      </div>
+                    </div>
+                  </div>
+                  <a
+                    href={docUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-ghost"
+                    style={{
+                      padding: '6px 10px',
+                      fontSize: '0.78rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      textDecoration: 'none',
+                      color: 'var(--primary-light)'
+                    }}
+                  >
+                    View <ExternalLink size={12} />
+                  </a>
+                </div>
+              )
+            })}
+          </div>
+        </motion.div>
+      )}
+
       {/* Visual pipeline tracker */}
       <motion.div variants={fadeUp} style={{ marginBottom: 24 }}>
         <div className="dash-section-title"><Activity size={14} color="var(--primary-light)"/> Claim Status Pipeline</div>
@@ -210,11 +265,6 @@ export default function ClaimDetail() {
                     </div>
                     <div style={{ fontSize: '0.79rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                       {res.message || res.reason || res.error || '—'}
-                      {res.net_estimate !== undefined && (
-                        <span style={{ marginLeft: 8, color: '#10B981', fontWeight: 600 }}>
-                          ₹{Number(res.net_estimate).toLocaleString('en-IN')}
-                        </span>
-                      )}
                       {res.fraud_score !== undefined && (
                         <span style={{ marginLeft: 8, color: res.fraud_score > 0.5 ? '#EF4444' : '#F59E0B' }}>
                           · Fraud: {res.fraud_score}

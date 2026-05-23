@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from datetime import date, datetime, timedelta
 
 from app.database.connection import get_db
-from app.models.models import Claim, Policy, User, FNOLSubmission
+from app.models.models import Claim, Policy, User, FNOLSubmission, ClaimDocument
 from app.controllers.auth_controller import get_current_user
 from app.services.email_escalation_service import notify_claimant_update
 
@@ -34,6 +34,19 @@ class ClaimOut(BaseModel):
     policy_coverage_limit: float | None = None
     policy_total_settled_amount: float | None = None
     policy_remaining_capacity: float | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class ClaimDocumentOut(BaseModel):
+    id: int
+    claim_id: Optional[int] = None
+    policy_id: int
+    user_id: int
+    filename: str
+    category: str
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -410,3 +423,62 @@ def create_claim(
     db.commit()
     db.refresh(claim)
     return claim
+
+
+@router.get("/{claim_id}/documents", response_model=List[ClaimDocumentOut])
+def list_claim_documents(
+    claim_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    if current_user.role == "policyholder" and claim.claimant_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    docs = db.query(ClaimDocument).filter(ClaimDocument.claim_id == claim_id).all()
+    return docs
+
+
+@router.get("/{claim_id}/documents/{document_id}", summary="Download/view a specific claim document")
+def get_specific_claim_document(
+    claim_id: int,
+    document_id: int,
+    download: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    if current_user.role == "policyholder" and claim.claimant_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    doc = db.query(ClaimDocument).filter(
+        ClaimDocument.id == document_id,
+        ClaimDocument.claim_id == claim_id
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    fpath = doc.file_path
+    if not os.path.exists(fpath):
+        raise HTTPException(status_code=404, detail="Document file not found on server")
+        
+    ext = os.path.splitext(fpath)[1].lower()
+    media_map = {
+        ".pdf": "application/pdf",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".txt": "text/plain",
+        ".doc": "application/msword",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
+    media_type = media_map.get(ext, "application/octet-stream")
+    return FileResponse(
+        path=fpath,
+        media_type=media_type,
+        filename=doc.filename,
+        content_disposition_type="attachment" if download else "inline",
+    )

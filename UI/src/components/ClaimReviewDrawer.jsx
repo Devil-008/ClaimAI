@@ -46,16 +46,19 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
   const [acting,           setActing]           = useState(null)  // 'approve' | 'reject' | 'partial_approve'
   const [showPartialInput, setShowPartialInput] = useState(false)
   const [customAmount,     setCustomAmount]     = useState('')
+  const [documents,        setDocuments]        = useState([])
 
   useEffect(() => {
     if (!claimId) return
-    setLoading(true); setClaim(null); setPipeline(null); setNotes(''); setShowPartialInput(false); setCustomAmount('')
+    setLoading(true); setClaim(null); setPipeline(null); setNotes(''); setShowPartialInput(false); setCustomAmount(''); setDocuments([])
     Promise.all([
       api.get(`/claims/${claimId}`),
       api.get(`/fnol/${claimId}/pipeline`).catch(() => ({ data: null })),
-    ]).then(([cr, pr]) => {
+      api.get(`/claims/${claimId}/documents`).catch(() => ({ data: [] })),
+    ]).then(([cr, pr, dr]) => {
       setClaim(cr.data)
       setPipeline(pr.data)
+      setDocuments(dr.data || [])
       const trace = pr.data?.pipeline_trace || []
       const a4 = trace.find(s => s.step === 'A4_Damage_Assessment')
       const est = a4?.result?.net_estimate
@@ -160,7 +163,58 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
                       <Field label="Remaining Cover" value={claim.policy_remaining_capacity !== undefined ? `₹${Number(claim.policy_remaining_capacity).toLocaleString('en-IN')}` : '—'} accent={claim.policy_remaining_capacity > 0 ? '#10B981' : '#EF4444'}/>
                     </div>
                   </div>
-                  {claim.document_url && (
+                  {documents.length > 0 ? (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Uploaded Documents</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {documents.map(doc => {
+                          const categoryLabels = {
+                            claim_form: '📝 Claim Form',
+                            medical_report: '🏥 Medical Report',
+                            test_report: '🔬 Test Report',
+                            id_card: '🆔 ID Card',
+                            other: '📄 Other Document'
+                          }
+                          const token = JSON.parse(localStorage.getItem('claimai-auth') || '{}')?.state?.token || ''
+                          const docUrl = `http://localhost:8000/api/claims/${claimId}/documents/${doc.id}?token=${token}`
+                          return (
+                            <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                <FileText size={16} style={{ color: 'var(--primary-light)', flexShrink: 0 }} />
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                                    {doc.filename}
+                                  </div>
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>
+                                    {categoryLabels[doc.category] || doc.category}
+                                  </div>
+                                </div>
+                              </div>
+                              <a
+                                href={docUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                  color: 'var(--primary-light)',
+                                  textDecoration: 'none',
+                                  padding: '4px 8px',
+                                  borderRadius: 4,
+                                  background: 'rgba(99,102,241,0.1)'
+                                }}
+                              >
+                                View <ExternalLink size={10} />
+                              </a>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : claim.document_url && (
                     <a href={`http://localhost:8000${claim.document_url}?token=${JSON.parse(localStorage.getItem('claimai-auth') || '{}')?.state?.token || ''}`} target="_blank" rel="noopener noreferrer"
                       style={{ display:'inline-flex', alignItems:'center', gap:6, marginTop:10,
                         padding:'7px 14px', borderRadius:8, fontSize:'0.8rem', fontWeight:600,

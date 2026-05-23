@@ -336,3 +336,18 @@ class EmailLog(Base):
     sent_at = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ClaimDocument(Base):
+    __tablename__ = "claim_documents"
+    id = Column(Integer, primary_key=True, index=True)
+    claim_id = Column(Integer, nullable=True, index=True)
+    policy_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    filename = Column(String(255), nullable=False)
+    file_path = Column(String(500), nullable=False)
+    category = Column(String(50), nullable=False)  # 'claim_form', 'medical_report', 'test_report', 'id_card', 'other'
+    raw_text = Column(Text)
+    extracted_data = Column(JSON)
+    created_at = Column(DateTime, server_default=func.now())
+
