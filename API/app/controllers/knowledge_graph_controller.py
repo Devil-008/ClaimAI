@@ -89,7 +89,7 @@ async def rag_chat(
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
         
-    answer = await rag_chat_response(request.query, db)
+    answer = await rag_chat_response(request.query, db, current_user)
     return {"response": answer}
 
 

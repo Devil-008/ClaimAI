@@ -310,10 +310,42 @@ async def rag_chat_response(
                 session_id=session_id,
             )
 
-        # 4. Search ChromaDB for relevant chunks
+        # 4. Search ChromaDB for relevant chunks with secure isolation filter
         try:
+            where_filter = None
+            if current_user.role == "policyholder":
+                target_policy_id = req.policy_id
+                if not target_policy_id:
+                    from app.models.models import Policy
+                    policy = db.query(Policy).filter(
+                        Policy.policyholder_id == current_user.id,
+                        Policy.status == "active"
+                    ).first()
+                    if policy:
+                        target_policy_id = policy.id
+                
+                if target_policy_id:
+                    where_filter = {
+                        "$or": [
+                            {"is_public": "true"},
+                            {"policy_id": str(target_policy_id)}
+                        ]
+                    }
+                else:
+                    where_filter = {"is_public": "true"}
+            else:
+                if req.policy_id:
+                    where_filter = {
+                        "$or": [
+                            {"is_public": "true"},
+                            {"policy_id": str(req.policy_id)}
+                        ]
+                    }
+                else:
+                    where_filter = {"is_public": "true"}
+
             relevant_chunks = vector_store_service.search_similar_chunks(
-                query, top_k=req.top_k
+                query, top_k=req.top_k, where=where_filter
             )
         except Exception as e:
             logger.error(f"Error searching vector store: {e}")

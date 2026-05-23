@@ -64,7 +64,7 @@ async def process_knowledge_graph(
         vector_store_service = VectorStoreService()
         for doc in documents:
             chunks = vector_store_service.chunk_text(combined_text)
-            vector_store_service.save_document_chunks(chunks, doc.id, doc.filename)
+            vector_store_service.save_document_chunks(chunks, doc.id, doc.filename, {"is_public": "true"})
         logger.info(f"Successfully saved document chunks to vector store for {len(documents)} documents.")
     except Exception as e:
         logger.error(f"Failed to save chunks to vector store: {e}")
@@ -453,7 +453,7 @@ def _get_mock_data() -> Dict[str, Any]:
     }
 
 
-async def rag_chat_response(query: str, db: Session) -> Dict[str, Any]:
+async def rag_chat_response(query: str, db: Session, current_user: Any = None) -> Dict[str, Any]:
     """
     RAG chat response using uploaded knowledge documents as context and Mistral LLM to generate answer.
     Returns structured response with answer, sources, and confidence.
@@ -476,7 +476,30 @@ async def rag_chat_response(query: str, db: Session) -> Dict[str, Any]:
         # 2. Initialize vector store and search for similar chunks
         try:
             vector_store_service = VectorStoreService()
-            similar_chunks = vector_store_service.search_similar_chunks(query, top_k=5)
+            where_filter = None
+            if current_user:
+                if current_user.role == "policyholder":
+                    from app.models.models import Policy
+                    policy = db.query(Policy).filter(
+                        Policy.policyholder_id == current_user.id,
+                        Policy.status == "active"
+                    ).first()
+                    if policy:
+                        where_filter = {
+                            "$or": [
+                                {"is_public": "true"},
+                                {"policy_id": str(policy.id)}
+                            ]
+                        }
+                    else:
+                        where_filter = {"is_public": "true"}
+                else:
+                    # Reviewers/admins can search everything
+                    pass
+            else:
+                where_filter = {"is_public": "true"}
+
+            similar_chunks = vector_store_service.search_similar_chunks(query, top_k=5, where=where_filter)
         except Exception as e:
             logger.error(f"Vector store search failed: {e}")
             similar_chunks = []

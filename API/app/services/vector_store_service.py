@@ -36,36 +36,44 @@ class VectorStoreService:
         """Generate embedding vector for text."""
         return self.model.encode(text).tolist()
 
-    def save_document_chunks(self, chunks: List[str], document_id: int, filename: str):
+    def save_document_chunks(
+        self, chunks: List[str], document_id: int, filename: str, metadata: Dict[str, Any] = None
+    ):
         """Save document chunks with embeddings to vector store."""
         try:
             for idx, chunk in enumerate(chunks):
                 embedding = self.generate_embedding(chunk)
                 chunk_id = f"doc_{document_id}_chunk_{idx}"
 
+                chunk_meta = {
+                    "document_id": str(document_id),
+                    "filename": filename,
+                    "chunk_index": idx,
+                    "is_public": "false",  # default to private
+                }
+                if metadata:
+                    for k, v in metadata.items():
+                        chunk_meta[k] = str(v)
+
                 self.collection.add(
                     ids=[chunk_id],
                     documents=[chunk],
                     embeddings=[embedding],
-                    metadatas=[
-                        {
-                            "document_id": str(document_id),
-                            "filename": filename,
-                            "chunk_index": idx,
-                        }
-                    ],
+                    metadatas=[chunk_meta],
                 )
             logger.info(f"Saved {len(chunks)} chunks for document {document_id}.")
         except Exception as e:
             logger.error(f"Error saving document chunks: {e}")
             raise
 
-    def search_similar_chunks(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search_similar_chunks(
+        self, query: str, top_k: int = 5, where: Dict[str, Any] = None
+    ) -> List[Dict[str, Any]]:
         """Search for similar chunks using query embedding."""
         try:
             query_embedding = self.generate_embedding(query)
             results = self.collection.query(
-                query_embeddings=[query_embedding], n_results=top_k
+                query_embeddings=[query_embedding], n_results=top_k, where=where
             )
 
             formatted_results = []

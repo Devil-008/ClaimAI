@@ -164,6 +164,32 @@ def _create_and_run(db, user, payload_dict, fnol_payload, file_paths=None):
                 ClaimDocument.policy_id == claim.policy_id
             ).update({ClaimDocument.claim_id: claim.id})
 
+        # Index newly created claim documents into vector store
+        try:
+            from app.services.vector_store_service import VectorStoreService
+            vector_store = VectorStoreService()
+            linked_docs = db.query(ClaimDocument).filter(
+                ClaimDocument.claim_id == claim.id,
+                ClaimDocument.file_path.in_(file_paths)
+            ).all()
+            for doc in linked_docs:
+                if doc.raw_text:
+                    chunks = vector_store.chunk_text(doc.raw_text)
+                    vector_store.save_document_chunks(
+                        chunks, 
+                        doc.id, 
+                        doc.filename, 
+                        {
+                            "is_public": "false", 
+                            "policy_id": claim.policy_id, 
+                            "user_id": claim.claimant_id,
+                            "claim_id": claim.id
+                        }
+                    )
+        except Exception as ve_err:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to index claim documents on submit: {ve_err}")
+
     # 2. Run A1 orchestrator
     result = a1_orchestrator.run_pipeline(db, claim, fnol_payload, file_paths)
 

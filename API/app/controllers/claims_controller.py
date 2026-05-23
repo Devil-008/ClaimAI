@@ -691,5 +691,29 @@ async def upload_more_documents(
     claim.document_request_message = None
 
     db.commit()
+
+    # Index newly uploaded claim documents to Chroma DB
+    try:
+        from app.services.vector_store_service import VectorStoreService
+        vector_store = VectorStoreService()
+        added_paths = [info["fpath"] for info in saved_files_info]
+        new_docs = db.query(ClaimDocument).filter(ClaimDocument.file_path.in_(added_paths)).all()
+        for doc in new_docs:
+            if doc.raw_text:
+                chunks = vector_store.chunk_text(doc.raw_text)
+                vector_store.save_document_chunks(
+                    chunks,
+                    doc.id,
+                    doc.filename,
+                    {
+                        "is_public": "false",
+                        "policy_id": claim.policy_id,
+                        "user_id": current_user.id,
+                        "claim_id": claim.id
+                    }
+                )
+    except Exception as ve_err:
+        logger.error(f"Failed to index newly uploaded claimant documents: {ve_err}")
+
     db.refresh(claim)
     return claim
