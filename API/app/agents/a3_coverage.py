@@ -31,6 +31,22 @@ def run(db: Session, claim: Claim) -> dict:
     if policy.expiry_date < today:
         return _fail("A3_Coverage_Verification", "Policy expired", {"expiry_date": str(policy.expiry_date)})
 
+    # 2b. Check remaining coverage capacity
+    from sqlalchemy import func
+    from app.models.models import Settlement
+    total_settled = db.query(func.sum(Settlement.net_payout)).join(Claim, Claim.id == Settlement.claim_id).filter(
+        Claim.policy_id == policy.id,
+        Claim.status == "settled"
+    ).scalar() or 0.0
+    total_settled = float(total_settled)
+    remaining_capacity = float(policy.coverage_limit or 0) - total_settled
+    if remaining_capacity <= 0:
+        return _fail(
+            "A3_Coverage_Verification",
+            f"Policy coverage limit exhausted. Limit: ₹{policy.coverage_limit:,.2f}, Total Settled: ₹{total_settled:,.2f}.",
+            {"policy_limit": float(policy.coverage_limit), "total_settled": total_settled}
+        )
+
     # 3. Claim type covered?
     covered_types = COVERAGE_MATRIX.get(policy.policy_type, [])
     if claim.claim_type not in covered_types:

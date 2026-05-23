@@ -65,9 +65,9 @@ function PolicyCard({ policy, onFileClaim, onDelete, onView }) {
       {/* Stats row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
         {[
-          { icon: DollarSign, label: 'Coverage',   value: `₹${Number(policy.coverage_limit).toLocaleString('en-IN')}` },
-          { icon: DollarSign, label: 'Deductible', value: `₹${Number(policy.deductible).toLocaleString('en-IN')}` },
-          { icon: Calendar,   label: 'Expires',    value: expFmt },
+          { icon: DollarSign, label: 'Remaining Cover', value: `₹${Number(policy.remaining_capacity || 0).toLocaleString('en-IN')}` },
+          { icon: DollarSign, label: 'Total Limit',     value: `₹${Number(policy.coverage_limit || 0).toLocaleString('en-IN')}` },
+          { icon: Calendar,   label: 'Expires',         value: expFmt },
         ].map(s => (
           <div key={s.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: 3 }}>

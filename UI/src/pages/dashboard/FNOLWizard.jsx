@@ -99,7 +99,6 @@ function PipelineResult({ result, onDone }) {
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                   {res.message || res.reason || res.error || '—'}
                   {res.fraud_score !== undefined && <span style={{ marginLeft: 8, color: res.fraud_score > 0.5 ? '#EF4444' : '#10B981' }}>Fraud: {res.fraud_score}</span>}
-                  {res.net_estimate !== undefined && <span style={{ marginLeft: 8, color: '#10B981' }}>Est. ₹{Number(res.net_estimate).toLocaleString('en-IN')}</span>}
                 </div>
               </motion.div>
             )
@@ -136,7 +135,7 @@ export default function FNOLWizard() {
   const [selectedPol, setSelectedPol] = useState(null)
 
   /* file */
-  const [docFile, setDocFile] = useState(null)
+  const [docFiles, setDocFiles] = useState([])
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef()
 
@@ -163,31 +162,53 @@ export default function FNOLWizard() {
       .catch(() => setPoliciesErr(true))
   }, [searchParams])
 
-  /* file handling + auto-extract */
-  async function handleFile(f) {
-    if (!f) return
-    setDocFile(f); setExtracted(null); setExtractError(null)
+  /* file handling */
+  async function handleFiles(filesList) {
+    if (!filesList || filesList.length === 0) return
+    const newFiles = Array.from(filesList)
+    const updatedFiles = [...docFiles, ...newFiles]
+    setDocFiles(updatedFiles)
+    setExtracted(null)
+    setExtractError(null)
+  }
+
+  async function removeFile(index) {
+    const updatedFiles = docFiles.filter((_, i) => i !== index)
+    setDocFiles(updatedFiles)
+    setExtracted(null)
+    setExtractError(null)
+  }
+
+  /* Explicit AI extraction trigger */
+  async function triggerExtraction() {
+    if (docFiles.length === 0) return toast.error('Please upload at least one document')
+    if (!selectedPol) return toast.error('Please select a policy first')
     setExtracting(true)
+    setExtracted(null)
+    setExtractError(null)
     try {
       const fd = new FormData()
-      fd.append('file', f)
+      fd.append('policy_id', selectedPol.id)
+      docFiles.forEach(f => {
+        fd.append('files', f)
+      })
       const res = await api.post('/fnol/extract-from-doc', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       setExtracted(res.data)
-      toast.success('✨ Claim details extracted!')
+      toast.success('✨ Details extracted from all documents!')
     } catch {
-      setExtractError('AI extraction failed. Please try another document.')
+      setExtractError('AI extraction failed. Please try again or fill manually.')
       toast.error('Extraction failed')
     } finally { setExtracting(false) }
   }
 
-  function onDrop(e) { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f) }
-  function onFileInput(e) { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }
-  function clearFile() { setDocFile(null); setExtracted(null); setExtractError(null) }
+  function onDrop(e) { e.preventDefault(); setDragOver(false); const files = e.dataTransfer.files; if (files && files.length > 0) handleFiles(files) }
+  function onFileInput(e) { const files = e.target.files; if (files && files.length > 0) handleFiles(files); e.target.value = '' }
+  function clearAllFiles() { setDocFiles([]); setExtracted(null); setExtractError(null) }
 
   /* submit → fnol/submit with extracted data */
   async function handleSubmit() {
     if (!selectedPol) return toast.error('Please select a policy')
-    if (!docFile) return toast.error('Please upload a claim document')
+    if (docFiles.length === 0) return toast.error('Please upload a claim document')
     if (!extracted) return toast.error('Waiting for AI extraction…')
     setLoading(true)
     try {
@@ -200,6 +221,9 @@ export default function FNOLWizard() {
         incident_location: extracted.incident_location || '',
         contact_phone: '',
         temp_file_path: extracted.temp_file_path || null,
+        temp_file_paths: extracted.temp_file_paths || null,
+        extracted_data: extracted,
+        raw_text: extracted.raw_text || '',
       })
       setResult(res.data)
       toast.success('Claim submitted! AI pipeline running…')
@@ -317,13 +341,39 @@ export default function FNOLWizard() {
 
         {/* ── STEP 2: Upload Document ── */}
         <motion.div variants={fadeUp} style={{ background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '20px 24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <Upload size={16} style={{ color: 'var(--primary)' }} />
-            <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Step 2 — Upload Claim Document</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Upload size={16} style={{ color: 'var(--primary)' }} />
+              <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Step 2 — Upload Claim Document</span>
+            </div>
+            <a
+              href="http://localhost:8000/api/fnol/sample-form"
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                color: 'var(--accent)',
+                textDecoration: 'none',
+                background: 'rgba(79,70,229,0.1)',
+                padding: '5px 10px',
+                borderRadius: 6,
+                transition: 'all 0.2s',
+                border: '1px solid rgba(79,70,229,0.2)'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(79,70,229,0.18)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(79,70,229,0.1)'}
+            >
+              <FileText size={12}/> Download Sample Form
+            </a>
           </div>
 
           <AnimatePresence mode="wait">
-            {!docFile ? (
+            {docFiles.length === 0 ? (
               <motion.div key="drop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 onDragOver={e => { e.preventDefault(); setDragOver(true) }}
                 onDragLeave={() => setDragOver(false)}
@@ -335,24 +385,44 @@ export default function FNOLWizard() {
                   background: dragOver ? 'rgba(99,102,241,0.05)' : 'rgba(255,255,255,0.02)', transition: 'all 0.2s',
                 }}>
                 <Upload size={28} style={{ color: 'var(--text-dim)', marginBottom: 10 }} />
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Drop your claim document here</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginBottom: 14 }}>PDF, JPG, PNG, Word · Max 20 MB</div>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Drop your claim documents here</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginBottom: 14 }}>PDF, JPG, PNG, Word · Max 5 MB per file</div>
                 <button className="btn-primary" style={{ fontSize: '0.82rem', padding: '8px 18px' }}
-                  onClick={e => { e.stopPropagation(); fileRef.current?.click() }}>Browse File</button>
-                <input ref={fileRef} type="file" hidden accept=".pdf,.jpg,.jpeg,.png,.txt,.doc,.docx" onChange={onFileInput} />
+                  onClick={e => { e.stopPropagation(); fileRef.current?.click() }}>Browse Files</button>
+                <input ref={fileRef} type="file" multiple hidden accept=".pdf,.jpg,.jpeg,.png,.txt,.doc,.docx" onChange={onFileInput} />
               </motion.div>
             ) : (
               <motion.div key="filebox" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                {/* File info */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10, padding: '12px 16px', marginBottom: 14 }}>
-                  <FileText size={20} style={{ color: 'var(--primary)', flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{docFile.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{(docFile.size / 1024).toFixed(1)} KB</div>
-                  </div>
-                  <button onClick={clearFile} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', padding: 4 }}>
-                    <X size={16} />
+                {/* File list */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+                  {docFiles.map((file, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10, padding: '12px 16px' }}>
+                      <FileText size={20} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{(file.size / 1024).toFixed(1)} KB</div>
+                      </div>
+                      <button onClick={() => removeFile(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', padding: 4 }} title="Remove file">
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Additional file trigger / Clear all */}
+                <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+                  <button className="btn-ghost" style={{ fontSize: '0.82rem', padding: '6px 12px' }} onClick={() => fileRef.current?.click()}>
+                    + Add More Files
                   </button>
+                  <button className="btn-ghost" style={{ fontSize: '0.82rem', padding: '6px 12px', color: '#EF4444' }} onClick={clearAllFiles}>
+                    Clear All
+                  </button>
+                  {docFiles.length > 0 && !extracted && !extracting && (
+                    <button className="btn-primary" style={{ fontSize: '0.82rem', padding: '6px 16px', background: '#10B981', borderColor: '#10B981', color: '#fff', marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }} onClick={triggerExtraction}>
+                      <Sparkles size={14} /> AI Extract Details
+                    </button>
+                  )}
+                  <input ref={fileRef} type="file" multiple hidden accept=".pdf,.jpg,.jpeg,.png,.txt,.doc,.docx" onChange={onFileInput} />
                 </div>
 
                 {extracting && (
@@ -360,7 +430,7 @@ export default function FNOLWizard() {
                     <Loader2 size={16} className="spin" style={{ color: 'var(--primary)' }} />
                     <div>
                       <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>AI Extracting Claim Details…</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Reading document and extracting structured data</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Reading documents and extracting structured data</div>
                     </div>
                   </div>
                 )}
@@ -404,6 +474,48 @@ export default function FNOLWizard() {
                   <ReviewField label="Incident Description" value={extracted.incident_description} multiline />
                 </div>
               </div>
+
+              {/* Categorized Documents List */}
+              {extracted.documents && extracted.documents.length > 0 && (
+                <div style={{ marginTop: 18, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 14 }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Categorized Documents</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {extracted.documents.map((doc, idx) => {
+                      const categoryLabels = {
+                        claim_form: '📝 Claim Form',
+                        medical_report: '🏥 Medical Report',
+                        test_report: '🔬 Test Report',
+                        id_card: '🆔 ID Card',
+                        other: '📄 Other Document'
+                      }
+                      return (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, padding: '8px 12px', fontSize: '0.82rem' }}>
+                          <span style={{ fontWeight: 500 }}>{doc.filename}</span>
+                          <span style={{ fontWeight: 600, color: 'var(--primary-light)', background: 'rgba(99,102,241,0.1)', padding: '2px 8px', borderRadius: 4, fontSize: '0.72rem' }}>
+                            {categoryLabels[doc.category] || doc.category}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Missing Documents Alert */}
+              {extracted.missing_categories && extracted.missing_categories.length > 0 && (
+                <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', color: '#FCD34D', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                    <AlertTriangle size={14} /> Missing Suggested Documents
+                  </div>
+                  <div>
+                    We did not detect the following document types: <span style={{ fontWeight: 600 }}>{extracted.missing_categories.map(c => c.replace('_', ' ').toUpperCase()).join(', ')}</span>.
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'rgba(252,211,77,0.7)' }}>
+                    Please upload them for faster approval, or proceed if you do not have them.
+                  </div>
+                </div>
+              )}
+
               <div style={{ marginTop: 12, fontSize: '0.76rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
                 <AlertCircle size={12} /> AI-extracted — please verify before submitting.
               </div>
@@ -432,8 +544,8 @@ export default function FNOLWizard() {
         {/* Submit */}
         <motion.div variants={fadeUp} style={{ display: 'flex', gap: 12 }}>
           <button className="btn-primary" onClick={handleSubmit}
-            disabled={loading || extracting || !docFile || !selectedPol || !extracted}
-            style={{ gap: 8, opacity: (!docFile || !selectedPol || !extracted || extracting) ? 0.5 : 1 }}>
+            disabled={loading || extracting || docFiles.length === 0 || !selectedPol || !extracted}
+            style={{ gap: 8, opacity: (docFiles.length === 0 || !selectedPol || !extracted || extracting) ? 0.5 : 1 }}>
             {loading ? <><Loader2 size={15} className="spin" /> Submitting…</> : <><Send size={15} />Read Cliam Documents</>}
           </button>
           <button className="btn-ghost" onClick={() => navigate(-1)}>Cancel</button>

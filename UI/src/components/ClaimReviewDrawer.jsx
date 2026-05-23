@@ -46,16 +46,21 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
   const [acting,           setActing]           = useState(null)  // 'approve' | 'reject' | 'partial_approve'
   const [showPartialInput, setShowPartialInput] = useState(false)
   const [customAmount,     setCustomAmount]     = useState('')
+  const [showRequestInput, setShowRequestInput] = useState(false)
+  const [requestMessage,   setRequestMessage]   = useState('')
+  const [documents,        setDocuments]        = useState([])
 
   useEffect(() => {
     if (!claimId) return
-    setLoading(true); setClaim(null); setPipeline(null); setNotes(''); setShowPartialInput(false); setCustomAmount('')
+    setLoading(true); setClaim(null); setPipeline(null); setNotes(''); setShowPartialInput(false); setCustomAmount(''); setDocuments([])
     Promise.all([
       api.get(`/claims/${claimId}`),
       api.get(`/fnol/${claimId}/pipeline`).catch(() => ({ data: null })),
-    ]).then(([cr, pr]) => {
+      api.get(`/claims/${claimId}/documents`).catch(() => ({ data: [] })),
+    ]).then(([cr, pr, dr]) => {
       setClaim(cr.data)
       setPipeline(pr.data)
+      setDocuments(dr.data || [])
       const trace = pr.data?.pipeline_trace || []
       const a4 = trace.find(s => s.step === 'A4_Damage_Assessment')
       const est = a4?.result?.net_estimate
@@ -85,6 +90,27 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Action failed')
     } finally { setActing(null) }
+  }
+
+  async function handleRequestDocuments() {
+    if (!requestMessage.trim()) return toast.error('Please enter details of the requested documents')
+    setActing('request')
+    try {
+      const res = await api.post(`/claims/${claimId}/request-documents`, { message: requestMessage })
+      toast.success(
+        res.data.status === 'escalated_siu'
+          ? '⚠️ Max request limit exceeded. Claim escalated to SIU Investigator!'
+          : '📧 Document request sent to claimant!'
+      )
+      onDecision?.(res.data)
+      onClose()
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to request documents')
+    } finally {
+      setActing(null)
+      setShowRequestInput(false)
+      setRequestMessage('')
+    }
   }
 
   const trace    = pipeline?.pipeline_trace || []
@@ -154,8 +180,64 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
                     <div style={{ gridColumn:'1/-1' }}>
                       <Field label="Incident Description" value={claim.incident_description}/>
                     </div>
+                    <div style={{ gridColumn:'1/-1', borderTop:'1px dashed rgba(255,255,255,0.08)', marginTop:6, paddingTop:10, display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
+                      <Field label="Policy Limit" value={claim.policy_coverage_limit !== undefined ? `₹${Number(claim.policy_coverage_limit).toLocaleString('en-IN')}` : '—'}/>
+                      <Field label="Total Settled" value={claim.policy_total_settled_amount !== undefined ? `₹${Number(claim.policy_total_settled_amount).toLocaleString('en-IN')}` : '—'}/>
+                      <Field label="Remaining Cover" value={claim.policy_remaining_capacity !== undefined ? `₹${Number(claim.policy_remaining_capacity).toLocaleString('en-IN')}` : '—'} accent={claim.policy_remaining_capacity > 0 ? '#10B981' : '#EF4444'}/>
+                    </div>
                   </div>
-                  {claim.document_url && (
+                  {documents.length > 0 ? (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Uploaded Documents</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {documents.map(doc => {
+                          const categoryLabels = {
+                            claim_form: '📝 Claim Form',
+                            medical_report: '🏥 Medical Report',
+                            test_report: '🔬 Test Report',
+                            id_card: '🆔 ID Card',
+                            other: '📄 Other Document'
+                          }
+                          const token = JSON.parse(localStorage.getItem('claimai-auth') || '{}')?.state?.token || ''
+                          const docUrl = `http://localhost:8000/api/claims/${claimId}/documents/${doc.id}?token=${token}`
+                          return (
+                            <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                <FileText size={16} style={{ color: 'var(--primary-light)', flexShrink: 0 }} />
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                                    {doc.filename}
+                                  </div>
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>
+                                    {categoryLabels[doc.category] || doc.category}
+                                  </div>
+                                </div>
+                              </div>
+                              <a
+                                href={docUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                  color: 'var(--primary-light)',
+                                  textDecoration: 'none',
+                                  padding: '4px 8px',
+                                  borderRadius: 4,
+                                  background: 'rgba(99,102,241,0.1)'
+                                }}
+                              >
+                                View <ExternalLink size={10} />
+                              </a>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : claim.document_url && (
                     <a href={`http://localhost:8000${claim.document_url}?token=${JSON.parse(localStorage.getItem('claimai-auth') || '{}')?.state?.token || ''}`} target="_blank" rel="noopener noreferrer"
                       style={{ display:'inline-flex', alignItems:'center', gap:6, marginTop:10,
                         padding:'7px 14px', borderRadius:8, fontSize:'0.8rem', fontWeight:600,
@@ -398,6 +480,76 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
                             <><Loader2 size={14} className="spin"/> Submitting…</>
                           ) : (
                             user?.role === 'adjuster' ? <>Confirm Recommendation</> : <>Confirm Partial Approval</>
+                          )}
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <button
+                    className="btn-primary"
+                    disabled={!!acting}
+                    onClick={() => { setShowRequestInput(!showRequestInput); setShowPartialInput(false); }}
+                    style={{
+                      width: '100%', gap: 8,
+                      background: 'linear-gradient(135deg,#3B82F6,#2563EB)', borderColor: '#3B82F6',
+                      boxShadow: showRequestInput ? 'inset 0 2px 4px rgba(0,0,0,0.4)' : 'none',
+                      border: showRequestInput ? '1.5px solid var(--text)' : '1px solid transparent'
+                    }}
+                  >
+                    <FileText size={14}/>
+                    {showRequestInput ? 'Cancel Request' : 'Request More Info'}
+                  </button>
+
+                  <AnimatePresence>
+                    {showRequestInput && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        style={{
+                          background: 'rgba(59, 130, 246, 0.05)',
+                          border: '1px solid rgba(59, 130, 246, 0.25)',
+                          borderRadius: 8,
+                          padding: 16,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 12,
+                          overflow: 'hidden'
+                        }}
+                      >
+                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#3B82F6', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          What documents are required?
+                        </div>
+                        <textarea
+                          value={requestMessage}
+                          onChange={e => setRequestMessage(e.target.value)}
+                          placeholder="Describe the additional documents required (e.g. Please upload original pathology test report)..."
+                          rows={3}
+                          style={{
+                            width: '100%', boxSizing: 'border-box', resize: 'vertical',
+                            background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: 6, padding: '10px 12px', color: 'var(--text)', fontSize: '0.84rem',
+                            outline: 'none', fontFamily: 'inherit', lineHeight: 1.5,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          disabled={!!acting || !requestMessage.trim()}
+                          onClick={handleRequestDocuments}
+                          style={{
+                            background: 'linear-gradient(135deg,#3B82F6,#2563EB)',
+                            borderColor: '#2563EB',
+                            width: '100%',
+                            gap: 6
+                          }}
+                        >
+                          {acting === 'request' ? (
+                            <><Loader2 size={14} className="spin"/> Sending…</>
+                          ) : (
+                            <>Send Request (Attempt {Number(claim.document_request_count || 0) + 1}/3)</>
                           )}
                         </button>
                       </motion.div>

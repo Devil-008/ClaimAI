@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { ArrowLeft, FileText, Calendar, Tag, Activity, Zap, ChevronDown, ChevronUp, ExternalLink, Download } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ArrowLeft, FileText, Calendar, Tag, Activity, Zap, ChevronDown, ChevronUp, ExternalLink, Download, Upload, X } from 'lucide-react'
 import api from '../../services/api'
 import { LoadingState, ErrorState } from '../../components/StateViews'
+import toast from 'react-hot-toast'
+import { useAuthStore } from '../../store/authStore'
 
 const STATUS_LABEL = {
   fnol_received:         'FNOL Received',
@@ -16,6 +18,7 @@ const STATUS_LABEL = {
   escalated_siu:         'Pending for SIU Observation',
   rejected:              'Rejected',
   closed:                'Closed',
+  documents_required:    'Documents Required ⚠️',
 }
 
 const STATUS_CLS = {
@@ -45,22 +48,78 @@ const stagger = { visible: { transition: { staggerChildren: 0.08 } } }
 export default function ClaimDetail() {
   const { id }   = useParams()
   const navigate = useNavigate()
+  const { user } = useAuthStore()
   const [claim,    setClaim]    = useState(null)
   const [pipeline, setPipeline] = useState(null)
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState(null)
   const [showTrace, setShowTrace] = useState(true)
+  const [documents, setDocuments] = useState([])
 
-  useEffect(() => {
+  // Additional document request state
+  const [newDocs, setNewDocs] = useState([])
+  const [uploadingDocs, setUploadingDocs] = useState(false)
+  const moreDocsRef = useRef()
+
+  const loadData = () => {
     Promise.all([
       api.get(`/claims/${id}`),
       api.get(`/fnol/${id}/pipeline`).catch(() => ({ data: null })),
-    ]).then(([claimRes, pipeRes]) => {
+      api.get(`/claims/${id}/documents`).catch(() => ({ data: [] })),
+    ]).then(([claimRes, pipeRes, docsRes]) => {
       setClaim(claimRes.data)
       setPipeline(pipeRes.data)
+      setDocuments(docsRes.data || [])
     }).catch(e => setError(e?.response?.data?.detail || 'Claim not found'))
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    loadData()
   }, [id])
+
+  const handleNewDocs = (e) => {
+    const files = Array.from(e.target.files)
+    if (files.length > 0) {
+      setNewDocs(prev => [...prev, ...files])
+    }
+  }
+
+  const removeNewDoc = (index) => {
+    setNewDocs(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const submitNewDocs = async (e) => {
+    e.preventDefault()
+    if (newDocs.length === 0) {
+      toast.error('Please select at least one document.')
+      return
+    }
+
+    setUploadingDocs(true)
+    const formData = new FormData()
+    newDocs.forEach(file => {
+      formData.append('files', file)
+    })
+
+    try {
+      await api.post(`/claims/${id}/upload-more-documents`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      })
+      toast.success('Documents uploaded successfully!')
+      setNewDocs([])
+      if (moreDocsRef.current) {
+        moreDocsRef.current.value = ''
+      }
+      loadData()
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Failed to upload documents.')
+    } finally {
+      setUploadingDocs(false)
+    }
+  }
 
   if (loading) return <LoadingState label="Loading claim details…"/>
   if (error)   return <ErrorState message={error} onRetry={() => navigate(-1)}/>
@@ -126,6 +185,128 @@ export default function ClaimDetail() {
         ))}
       </motion.div>
 
+      {/* Additional Documents Requested Banner */}
+      {claim.status === 'documents_required' && (
+        <motion.div variants={fadeUp} style={{ marginBottom: 24 }}>
+          <div className="dash-section-title" style={{ color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            ⚠️ Action Required: Additional Documents Requested
+          </div>
+          <div className="stat-card" style={{ padding: '20px', border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.03)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+              <div>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--warning)', letterSpacing: '0.05em' }}>
+                  Request Message
+                </span>
+                <p style={{ fontSize: '0.95rem', color: 'var(--text)', marginTop: 4, lineHeight: 1.5 }}>
+                  {claim.document_request_message || 'Please upload the requested supporting documents.'}
+                </p>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                  Request Count: {claim.document_request_count || 1} / 3
+                </span>
+                {claim.document_request_by_role && (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: 2 }}>
+                    Requested by: <span style={{ textTransform: 'capitalize' }}>{claim.document_request_by_role.replace(/_/g, ' ')}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {user?.role === 'policyholder' ? (
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 16, marginTop: 16 }}>
+                <div 
+                  style={{
+                    border: '2px dashed rgba(245,158,11,0.25)',
+                    borderRadius: 10,
+                    padding: '24px 16px',
+                    textAlign: 'center',
+                    background: 'rgba(255,255,255,0.01)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    const files = Array.from(e.dataTransfer.files)
+                    if (files.length > 0) {
+                      setNewDocs(prev => [...prev, ...files])
+                    }
+                  }}
+                  onClick={() => moreDocsRef.current?.click()}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--warning)'}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(245,158,11,0.25)'}
+                >
+                  <Upload size={24} style={{ color: 'var(--warning)', marginBottom: 8 }}/>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text)' }}>
+                    Drag & drop files here, or <span style={{ color: 'var(--primary-light)', textDecoration: 'underline' }}>browse</span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: 4 }}>
+                    Supports PDFs, images, etc. Multiple files allowed.
+                  </div>
+                  <input 
+                    type="file" 
+                    ref={moreDocsRef} 
+                    onChange={handleNewDocs} 
+                    multiple 
+                    style={{ display: 'none' }}
+                  />
+                </div>
+
+                {newDocs.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>
+                      Selected Files ({newDocs.length})
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {newDocs.map((file, index) => (
+                        <div key={index} style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)',
+                          borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem'
+                        }}>
+                          <span style={{ color: 'var(--text)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '80%' }}>
+                            {file.name}
+                          </span>
+                          <button 
+                            type="button" 
+                            onClick={() => removeNewDoc(index)} 
+                            style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                          >
+                            <X size={14}/>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                      <button 
+                        type="button"
+                        className="btn-primary" 
+                        onClick={submitNewDocs} 
+                        disabled={uploadingDocs}
+                        style={{
+                          padding: '8px 16px',
+                          fontSize: '0.85rem',
+                          boxShadow: 'none',
+                          background: 'linear-gradient(135deg, var(--warning) 0%, #D97706 100%)',
+                        }}
+                      >
+                        {uploadingDocs ? 'Uploading...' : 'Submit Documents'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, marginTop: 12, fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                Waiting for the policyholder to upload the requested files.
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
       {/* Description */}
       {claim.incident_description && (
         <motion.div variants={fadeUp} style={{ marginBottom: 24 }}>
@@ -134,6 +315,58 @@ export default function ClaimDetail() {
             <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
               {claim.incident_description}
             </p>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Uploaded Documents */}
+      {documents.length > 0 && (
+        <motion.div variants={fadeUp} style={{ marginBottom: 24 }}>
+          <div className="dash-section-title"><FileText size={14} color="var(--primary-light)"/> Uploaded Documents</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+            {documents.map((doc) => {
+              const categoryLabels = {
+                claim_form: '📝 Claim Form',
+                medical_report: '🏥 Medical Report',
+                test_report: '🔬 Test Report',
+                id_card: '🆔 ID Card',
+                other: '📄 Other Document'
+              }
+              const token = JSON.parse(localStorage.getItem('claimai-auth') || '{}')?.state?.token || ''
+              const docUrl = `http://localhost:8000/api/claims/${id}/documents/${doc.id}?token=${token}`
+              return (
+                <div key={doc.id} className="stat-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                    <FileText size={20} style={{ color: 'var(--primary-light)', flexShrink: 0 }} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                        {doc.filename}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: 2 }}>
+                        {categoryLabels[doc.category] || doc.category}
+                      </div>
+                    </div>
+                  </div>
+                  <a
+                    href={docUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-ghost"
+                    style={{
+                      padding: '6px 10px',
+                      fontSize: '0.78rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      textDecoration: 'none',
+                      color: 'var(--primary-light)'
+                    }}
+                  >
+                    View <ExternalLink size={12} />
+                  </a>
+                </div>
+              )
+            })}
           </div>
         </motion.div>
       )}
@@ -210,11 +443,6 @@ export default function ClaimDetail() {
                     </div>
                     <div style={{ fontSize: '0.79rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                       {res.message || res.reason || res.error || '—'}
-                      {res.net_estimate !== undefined && (
-                        <span style={{ marginLeft: 8, color: '#10B981', fontWeight: 600 }}>
-                          ₹{Number(res.net_estimate).toLocaleString('en-IN')}
-                        </span>
-                      )}
                       {res.fraud_score !== undefined && (
                         <span style={{ marginLeft: 8, color: res.fraud_score > 0.5 ? '#EF4444' : '#F59E0B' }}>
                           · Fraud: {res.fraud_score}
