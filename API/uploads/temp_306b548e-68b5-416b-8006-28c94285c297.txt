@@ -1,1 +1,0 @@
-This is test document 1. Claim type: medical. Incident date: 2026-05-15. Diagnosed with acute fever.

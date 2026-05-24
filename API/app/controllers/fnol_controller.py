@@ -92,10 +92,11 @@ class FNOLFormPayload(BaseModel):
     incident_description: str
     incident_location: Optional[str] = None
     contact_phone: Optional[str] = None
-    temp_file_path: Optional[str] = None  # path saved during extract-from-doc
+    temp_file_path: Optional[str] = None   # path saved during extract-from-doc
     temp_file_paths: Optional[List[str]] = None  # multiple paths saved during extract-from-doc
+    documents: Optional[List[dict]] = None  # enriched doc list [{filename, file_path, category, raw_text, extracted_data}]
     extracted_data: Optional[dict] = None  # full AI extracted entities
-    raw_text: Optional[str] = None  # full raw OCR text aggregated from documents
+    raw_text: Optional[str] = None         # full raw OCR text aggregated from documents
 
 
 class PipelineStepOut(BaseModel):
@@ -155,33 +156,72 @@ def _create_and_run(db, user, payload_dict, fnol_payload, file_paths=None):
     )
     db.add(fnol_sub)
 
-    # Link ClaimDocument records created during extraction to the claim.id
-    if file_paths:
-        for path in file_paths:
-            db.query(ClaimDocument).filter(
-                ClaimDocument.file_path == path,
-                ClaimDocument.user_id == user.id,
-                ClaimDocument.policy_id == claim.policy_id
-            ).update({ClaimDocument.claim_id: claim.id})
+    # Insert ClaimDocument rows — only here at claim-creation time, never during extraction.
+    # payload_dict["documents"] carries enriched doc metadata (filename, file_path, category,
+    # raw_text, extracted_data) set by extract-from-doc or manually by the wizard.
+    docs_to_insert = payload_dict.get("documents") or []
+    inserted_paths = set()
 
-        # Index newly created claim documents into vector store
+    for doc in docs_to_insert:
+        fpath = doc.get("file_path") or doc.get("fpath")
+        if not fpath or fpath in inserted_paths:
+            continue   # skip duplicates within the same submit
+        category = doc.get("category", "other")
+        if category not in ("claim_form", "medical_report", "test_report", "id_card", "other"):
+            category = "other"
+        claim_doc = ClaimDocument(
+            claim_id=claim.id,
+            policy_id=claim.policy_id,
+            user_id=user.id,
+            filename=doc.get("filename", "document"),
+            file_path=fpath,
+            category=category,
+            raw_text=doc.get("raw_text"),
+            extracted_data=doc.get("extracted_data") or {},
+        )
+        db.add(claim_doc)
+        inserted_paths.add(fpath)
+
+    # If no documents list but file_paths were passed (form-only submit with file),
+    # create a generic ClaimDocument for each file.
+    if not docs_to_insert and file_paths:
+        for fpath in file_paths:
+            if fpath in inserted_paths:
+                continue
+            claim_doc = ClaimDocument(
+                claim_id=claim.id,
+                policy_id=claim.policy_id,
+                user_id=user.id,
+                filename=os.path.basename(fpath),
+                file_path=fpath,
+                category="other",
+                raw_text=None,
+                extracted_data={},
+            )
+            db.add(claim_doc)
+            inserted_paths.add(fpath)
+
+    db.flush()  # ensure IDs are available for Chroma indexing below
+
+    # Index newly created claim documents into vector store
+    if inserted_paths:
         try:
             from app.services.vector_store_service import VectorStoreService
             vector_store = VectorStoreService()
             linked_docs = db.query(ClaimDocument).filter(
                 ClaimDocument.claim_id == claim.id,
-                ClaimDocument.file_path.in_(file_paths)
+                ClaimDocument.file_path.in_(list(inserted_paths))
             ).all()
             for doc in linked_docs:
                 if doc.raw_text:
                     chunks = vector_store.chunk_text(doc.raw_text)
                     vector_store.save_document_chunks(
-                        chunks, 
-                        doc.id, 
-                        doc.filename, 
+                        chunks,
+                        doc.id,
+                        doc.filename,
                         {
-                            "is_public": "false", 
-                            "policy_id": claim.policy_id, 
+                            "is_public": "false",
+                            "policy_id": claim.policy_id,
                             "user_id": claim.claimant_id,
                             "claim_id": claim.id
                         }
@@ -189,6 +229,7 @@ def _create_and_run(db, user, payload_dict, fnol_payload, file_paths=None):
         except Exception as ve_err:
             import logging
             logging.getLogger(__name__).error(f"Failed to index claim documents on submit: {ve_err}")
+
 
     # 2. Run A1 orchestrator
     result = a1_orchestrator.run_pipeline(db, claim, fnol_payload, file_paths)
@@ -335,21 +376,8 @@ async def extract_claim_from_doc(
         truncated = combined_text[:8000]
 
         if not settings.MISTRAL_API_KEY:
-            # Fallback mock setup ClaimDocuments
-            for info in saved_files_info:
-                claim_doc = ClaimDocument(
-                    claim_id=None,
-                    policy_id=policy_id,
-                    user_id=current_user.id,
-                    filename=info["filename"],
-                    file_path=info["fpath"],
-                    category="other",
-                    raw_text=info["raw_text"],
-                    extracted_data={}
-                )
-                db.add(claim_doc)
-            db.commit()
-
+            # No Mistral key — return mock response without writing to DB
+            # ClaimDocument rows will be written at submit time in _create_and_run
             return {
                 "claim_type": "medical",
                 "incident_date": str(date.today()),
@@ -360,7 +388,7 @@ async def extract_claim_from_doc(
                 "temp_file_paths": saved_paths,
                 "temp_file_path": saved_paths[0] if saved_paths else None,
                 "documents": [
-                    {"filename": info["filename"], "category": "other", "extracted_data": {}}
+                    {"filename": info["filename"], "file_path": info["fpath"], "category": "other", "extracted_data": {}}
                     for info in saved_files_info
                 ],
                 "missing_categories": ["claim_form", "medical_report", "test_report", "id_card"],
@@ -439,57 +467,51 @@ Rules:
         except Exception:
             extracted["incident_date"] = str(date.today())
 
-        # Save ClaimDocument records in database
+        # Build enriched documents list (includes file_path for use at submit time)
+        # Do NOT insert ClaimDocument rows here — they are written in _create_and_run
+        # when the claim is actually created. Inserting here causes duplicates if the
+        # user goes back, changes files, or re-tries the extraction step.
         documents_list = extracted.get("documents", [])
         files_by_name = {info["filename"].lower(): info for info in saved_files_info}
-        logged_filenames = set()
+        enriched_docs = []
+        logged_fpaths = set()
 
         for doc in documents_list:
             fname = doc.get("filename", "")
             category = doc.get("category", "other")
             if category not in ("claim_form", "medical_report", "test_report", "id_card", "other"):
                 category = "other"
-            
             ext_data = doc.get("extracted_data", {})
-            
+
             matched_info = files_by_name.get(fname.lower())
             if not matched_info:
                 for name, info in files_by_name.items():
                     if name in fname.lower() or fname.lower() in name:
                         matched_info = info
                         break
-            
+
             if matched_info:
-                logged_filenames.add(matched_info["filename"].lower())
-                claim_doc = ClaimDocument(
-                    claim_id=None,
-                    policy_id=policy_id,
-                    user_id=current_user.id,
-                    filename=matched_info["filename"],
-                    file_path=matched_info["fpath"],
-                    category=category,
-                    raw_text=matched_info["raw_text"],
-                    extracted_data=ext_data
-                )
-                db.add(claim_doc)
+                logged_fpaths.add(matched_info["fpath"])
+                enriched_docs.append({
+                    "filename": matched_info["filename"],
+                    "file_path": matched_info["fpath"],
+                    "category": category,
+                    "extracted_data": ext_data,
+                    "raw_text": matched_info["raw_text"],
+                })
 
-        # Log any leftover files
+        # Any file not mentioned by LLM — add as 'other'
         for info in saved_files_info:
-            if info["filename"].lower() not in logged_filenames:
-                claim_doc = ClaimDocument(
-                    claim_id=None,
-                    policy_id=policy_id,
-                    user_id=current_user.id,
-                    filename=info["filename"],
-                    file_path=info["fpath"],
-                    category="other",
-                    raw_text=info["raw_text"],
-                    extracted_data={}
-                )
-                db.add(claim_doc)
-        
-        db.commit()
+            if info["fpath"] not in logged_fpaths:
+                enriched_docs.append({
+                    "filename": info["filename"],
+                    "file_path": info["fpath"],
+                    "category": "other",
+                    "extracted_data": {},
+                    "raw_text": info["raw_text"],
+                })
 
+        extracted["documents"] = enriched_docs
         extracted["extracted"] = True
         extracted["temp_file_paths"] = saved_paths
         extracted["temp_file_path"] = saved_paths[0] if saved_paths else None
@@ -501,22 +523,7 @@ Rules:
         logging.getLogger(__name__).error(
             f"Mistral extraction failed: {e.response.text}"
         )
-        
-        # Fallback database logging
-        for info in saved_files_info:
-            claim_doc = ClaimDocument(
-                claim_id=None,
-                policy_id=policy_id,
-                user_id=current_user.id,
-                filename=info["filename"],
-                file_path=info["fpath"],
-                category="other",
-                raw_text=info["raw_text"],
-                extracted_data={}
-            )
-            db.add(claim_doc)
-        db.commit()
-
+        # Fallback — return file info without writing to DB
         return {
             "claim_type": "other",
             "incident_date": str(date.today()),
@@ -527,7 +534,7 @@ Rules:
             "temp_file_paths": saved_paths,
             "temp_file_path": saved_paths[0] if saved_paths else None,
             "documents": [
-                {"filename": info["filename"], "category": "other", "extracted_data": {}}
+                {"filename": info["filename"], "file_path": info["fpath"], "category": "other", "extracted_data": {}, "raw_text": info["raw_text"]}
                 for info in saved_files_info
             ],
             "missing_categories": ["claim_form", "medical_report", "test_report", "id_card"],
@@ -536,22 +543,7 @@ Rules:
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Extraction error: {e}")
-        
-        # Fallback database logging
-        for info in saved_files_info:
-            claim_doc = ClaimDocument(
-                claim_id=None,
-                policy_id=policy_id,
-                user_id=current_user.id,
-                filename=info["filename"],
-                file_path=info["fpath"],
-                category="other",
-                raw_text=info["raw_text"],
-                extracted_data={}
-            )
-            db.add(claim_doc)
-        db.commit()
-
+        # Fallback — return file info without writing to DB
         return {
             "claim_type": "other",
             "incident_date": str(date.today()),
@@ -562,7 +554,7 @@ Rules:
             "temp_file_paths": saved_paths,
             "temp_file_path": saved_paths[0] if saved_paths else None,
             "documents": [
-                {"filename": info["filename"], "category": "other", "extracted_data": {}}
+                {"filename": info["filename"], "file_path": info["fpath"], "category": "other", "extracted_data": {}, "raw_text": info["raw_text"]}
                 for info in saved_files_info
             ],
             "missing_categories": ["claim_form", "medical_report", "test_report", "id_card"],

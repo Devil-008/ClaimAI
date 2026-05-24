@@ -19,11 +19,13 @@ const STATUS_LABEL = {
   rejected:              'Rejected',
   closed:                'Closed',
   documents_required:    'Documents Required ⚠️',
+  documents_rejected:    'Documents Rejected ❌',
 }
 
 const STATUS_CLS = {
   settled: 'badge-success', closed: 'badge-success',
   rejected: 'badge-danger', escalated_adjuster: 'badge-danger', escalated_siu: 'badge-danger',
+  documents_rejected: 'badge-danger',
 }
 
 const PIPELINE_STEPS = [
@@ -56,10 +58,15 @@ export default function ClaimDetail() {
   const [showTrace, setShowTrace] = useState(true)
   const [documents, setDocuments] = useState([])
 
-  // Additional document request state
+  // Additional document request / rejection state
   const [newDocs, setNewDocs] = useState([])
   const [uploadingDocs, setUploadingDocs] = useState(false)
   const moreDocsRef = useRef()
+
+  // Reject documents (adjuster)
+  const [showRejectModal, setShowRejectModal]   = useState(false)
+  const [rejectReason,    setRejectReason]      = useState('')
+  const [rejectingDocs,   setRejectingDocs]     = useState(false)
 
   const loadData = () => {
     Promise.all([
@@ -104,20 +111,35 @@ export default function ClaimDetail() {
 
     try {
       await api.post(`/claims/${id}/upload-more-documents`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
+        headers: { 'Content-Type': 'multipart/form-data' }
       })
       toast.success('Documents uploaded successfully!')
       setNewDocs([])
-      if (moreDocsRef.current) {
-        moreDocsRef.current.value = ''
-      }
+      if (moreDocsRef.current) moreDocsRef.current.value = ''
       loadData()
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Failed to upload documents.')
     } finally {
       setUploadingDocs(false)
+    }
+  }
+
+  const handleRejectDocuments = async () => {
+    if (!rejectReason.trim()) {
+      toast.error('Please provide a rejection reason.')
+      return
+    }
+    setRejectingDocs(true)
+    try {
+      await api.post(`/claims/${id}/reject-documents`, { reason: rejectReason.trim() })
+      toast.success('Documents rejected. Policyholder notified to resubmit.')
+      setShowRejectModal(false)
+      setRejectReason('')
+      loadData()
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Failed to reject documents.')
+    } finally {
+      setRejectingDocs(false)
     }
   }
 
@@ -185,7 +207,7 @@ export default function ClaimDetail() {
         ))}
       </motion.div>
 
-      {/* Additional Documents Requested Banner */}
+      {/* Documents Required Banner */}
       {claim.status === 'documents_required' && (
         <motion.div variants={fadeUp} style={{ marginBottom: 24 }}>
           <div className="dash-section-title" style={{ color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -214,90 +236,11 @@ export default function ClaimDetail() {
             </div>
 
             {user?.role === 'policyholder' ? (
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 16, marginTop: 16 }}>
-                <div 
-                  style={{
-                    border: '2px dashed rgba(245,158,11,0.25)',
-                    borderRadius: 10,
-                    padding: '24px 16px',
-                    textAlign: 'center',
-                    background: 'rgba(255,255,255,0.01)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                  }}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault()
-                    const files = Array.from(e.dataTransfer.files)
-                    if (files.length > 0) {
-                      setNewDocs(prev => [...prev, ...files])
-                    }
-                  }}
-                  onClick={() => moreDocsRef.current?.click()}
-                  onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--warning)'}
-                  onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(245,158,11,0.25)'}
-                >
-                  <Upload size={24} style={{ color: 'var(--warning)', marginBottom: 8 }}/>
-                  <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text)' }}>
-                    Drag & drop files here, or <span style={{ color: 'var(--primary-light)', textDecoration: 'underline' }}>browse</span>
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: 4 }}>
-                    Supports PDFs, images, etc. Multiple files allowed.
-                  </div>
-                  <input 
-                    type="file" 
-                    ref={moreDocsRef} 
-                    onChange={handleNewDocs} 
-                    multiple 
-                    style={{ display: 'none' }}
-                  />
-                </div>
-
-                {newDocs.length > 0 && (
-                  <div style={{ marginTop: 16 }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>
-                      Selected Files ({newDocs.length})
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {newDocs.map((file, index) => (
-                        <div key={index} style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)',
-                          borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem'
-                        }}>
-                          <span style={{ color: 'var(--text)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '80%' }}>
-                            {file.name}
-                          </span>
-                          <button 
-                            type="button" 
-                            onClick={() => removeNewDoc(index)} 
-                            style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                          >
-                            <X size={14}/>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                    
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                      <button 
-                        type="button"
-                        className="btn-primary" 
-                        onClick={submitNewDocs} 
-                        disabled={uploadingDocs}
-                        style={{
-                          padding: '8px 16px',
-                          fontSize: '0.85rem',
-                          boxShadow: 'none',
-                          background: 'linear-gradient(135deg, var(--warning) 0%, #D97706 100%)',
-                        }}
-                      >
-                        {uploadingDocs ? 'Uploading...' : 'Submit Documents'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <UploadDocsArea newDocs={newDocs} setNewDocs={setNewDocs} moreDocsRef={moreDocsRef}
+                handleNewDocs={handleNewDocs} removeNewDoc={removeNewDoc}
+                submitNewDocs={submitNewDocs} uploadingDocs={uploadingDocs}
+                accentColor="var(--warning)" buttonGradient="linear-gradient(135deg, var(--warning) 0%, #D97706 100%)"
+              />
             ) : (
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, marginTop: 12, fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
                 Waiting for the policyholder to upload the requested files.
@@ -305,6 +248,135 @@ export default function ClaimDetail() {
             )}
           </div>
         </motion.div>
+      )}
+
+      {/* Documents Rejected Banner */}
+      {claim.status === 'documents_rejected' && (
+        <motion.div variants={fadeUp} style={{ marginBottom: 24 }}>
+          <div className="dash-section-title" style={{ color: '#EF4444', display: 'flex', alignItems: 'center', gap: 6 }}>
+            ❌ Documents Rejected — Resubmission Required
+          </div>
+          <div className="stat-card" style={{ padding: '20px', border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.03)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+              <div>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', color: '#EF4444', letterSpacing: '0.05em' }}>
+                  Rejection Reason
+                </span>
+                <p style={{ fontSize: '0.95rem', color: 'var(--text)', marginTop: 4, lineHeight: 1.5 }}>
+                  {claim.document_rejection_message || 'Your submitted documents were rejected. Please resubmit with correct documents.'}
+                </p>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                  Rejection Count: {claim.document_rejection_count || 1} / 3
+                </span>
+              </div>
+            </div>
+
+            {user?.role === 'policyholder' ? (
+              <>
+                <div style={{ borderTop: '1px solid rgba(239,68,68,0.15)', paddingTop: 12, marginTop: 4, marginBottom: 16, fontSize: '0.82rem', color: '#FCA5A5', background: 'rgba(239,68,68,0.05)', borderRadius: 8, padding: '10px 14px' }}>
+                  ⚠️ Please upload the correct or updated documents. Further rejections may escalate your claim to SIU investigation.
+                </div>
+                <UploadDocsArea newDocs={newDocs} setNewDocs={setNewDocs} moreDocsRef={moreDocsRef}
+                  handleNewDocs={handleNewDocs} removeNewDoc={removeNewDoc}
+                  submitNewDocs={submitNewDocs} uploadingDocs={uploadingDocs}
+                  accentColor="#EF4444" buttonGradient="linear-gradient(135deg, #EF4444 0%, #DC2626 100%)"
+                />
+              </>
+            ) : (
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, marginTop: 12, fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                Waiting for the policyholder to resubmit the corrected documents.
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Adjuster: Reject Documents action (shown when docs are available) */}
+      {['adjuster','siu_investigator','supervisor','admin'].includes(user?.role) &&
+        documents.length > 0 &&
+        ['escalated_adjuster','escalated_siu','settlement_pending'].includes(claim.status) && (
+        <motion.div variants={fadeUp} style={{ marginBottom: 24 }}>
+          <div className="stat-card" style={{ padding: '16px 20px', border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.03)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#EF4444', marginBottom: 4 }}>Document Review Action</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
+                  Reject submitted documents and request the policyholder to resubmit with corrections.
+                  {claim.document_rejection_count > 0 && (
+                    <span style={{ marginLeft: 8, color: '#FCA5A5' }}>
+                      ({claim.document_rejection_count}/3 rejections used)
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                id="btn-reject-documents"
+                onClick={() => setShowRejectModal(true)}
+                style={{
+                  padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem',
+                  background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)',
+                  color: '#EF4444', display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.18s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.22)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'rgba(239,68,68,0.12)'}
+              >
+                ❌ Reject Documents
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Reject Documents Modal */}
+      {showRejectModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24
+        }}>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: 32, maxWidth: 480, width: '100%' }}>
+            <h3 style={{ margin: '0 0 8px', color: '#EF4444', fontSize: '1.1rem' }}>❌ Reject Submitted Documents</h3>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-dim)', marginBottom: 20 }}>
+              Provide a clear reason so the policyholder knows what to fix and resubmit.
+              After 3 rejections the claim will auto-escalate to SIU.
+            </p>
+            <textarea
+              id="reject-documents-reason"
+              value={rejectReason}
+              onChange={e => setRejectReason(e.target.value)}
+              placeholder="e.g. Medical report is blurry and unreadable. Please resubmit a clear scanned copy."
+              rows={4}
+              style={{
+                width: '100%', padding: '12px 14px', borderRadius: 8, resize: 'vertical',
+                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(239,68,68,0.3)',
+                color: 'var(--text)', fontSize: '0.88rem', lineHeight: 1.5, boxSizing: 'border-box'
+              }}
+            />
+            {claim.document_rejection_count >= 2 && (
+              <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', color: '#FCA5A5', fontSize: '0.78rem' }}>
+                ⚠️ Warning: This is the final rejection allowed ({(claim.document_rejection_count||0)+1}/3).
+                Confirming will auto-escalate this claim to SIU.
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 12, marginTop: 20, justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowRejectModal(false); setRejectReason('') }}
+                style={{ padding: '8px 18px', borderRadius: 8, background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.85rem' }}>
+                Cancel
+              </button>
+              <button onClick={handleRejectDocuments} disabled={rejectingDocs || !rejectReason.trim()}
+                style={{
+                  padding: '8px 18px', borderRadius: 8, fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
+                  background: 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)',
+                  border: 'none', color: '#fff', opacity: !rejectReason.trim() ? 0.5 : 1
+                }}>
+                {rejectingDocs ? 'Rejecting…' : 'Confirm Rejection'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
       )}
 
       {/* Description */}
@@ -335,32 +407,29 @@ export default function ClaimDetail() {
               const token = JSON.parse(localStorage.getItem('claimai-auth') || '{}')?.state?.token || ''
               const docUrl = `http://localhost:8000/api/claims/${id}/documents/${doc.id}?token=${token}`
               return (
-                <div key={doc.id} className="stat-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px' }}>
+                <div key={doc.id} className="stat-card" style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px',
+                  border: doc.is_rejected ? '1px solid rgba(239,68,68,0.35)' : undefined,
+                  background: doc.is_rejected ? 'rgba(239,68,68,0.04)' : undefined,
+                }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                    <FileText size={20} style={{ color: 'var(--primary-light)', flexShrink: 0 }} />
+                    <FileText size={20} style={{ color: doc.is_rejected ? '#EF4444' : 'var(--primary-light)', flexShrink: 0 }} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
                         {doc.filename}
+                        {doc.is_rejected && <span style={{ marginLeft: 6, fontSize: '0.7rem', color: '#EF4444', background: 'rgba(239,68,68,0.12)', padding: '1px 6px', borderRadius: 4 }}>REJECTED</span>}
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: 2 }}>
                         {categoryLabels[doc.category] || doc.category}
+                        {doc.is_rejected && doc.rejection_reason && (
+                          <span style={{ marginLeft: 4, color: '#FCA5A5' }}>· {doc.rejection_reason}</span>
+                        )}
                       </div>
                     </div>
                   </div>
-                  <a
-                    href={docUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <a href={docUrl} target="_blank" rel="noopener noreferrer"
                     className="btn-ghost"
-                    style={{
-                      padding: '6px 10px',
-                      fontSize: '0.78rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      textDecoration: 'none',
-                      color: 'var(--primary-light)'
-                    }}
+                    style={{ padding: '6px 10px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none', color: 'var(--primary-light)' }}
                   >
                     View <ExternalLink size={12} />
                   </a>
@@ -467,5 +536,51 @@ export default function ClaimDetail() {
         </motion.div>
       )}
     </motion.div>
+  )
+}
+
+/* ─── Reusable upload area (used by both required & rejected banners) ─────── */
+function UploadDocsArea({ newDocs, setNewDocs, moreDocsRef, handleNewDocs, removeNewDoc, submitNewDocs, uploadingDocs, accentColor, buttonGradient }) {
+  const borderColor = `${accentColor}40`
+  return (
+    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 16, marginTop: 16 }}>
+      <div
+        style={{ border: `2px dashed ${borderColor}`, borderRadius: 10, padding: '24px 16px', textAlign: 'center', background: 'rgba(255,255,255,0.01)', cursor: 'pointer', transition: 'all 0.2s' }}
+        onDragOver={e => e.preventDefault()}
+        onDrop={e => { e.preventDefault(); const files = Array.from(e.dataTransfer.files); if (files.length > 0) setNewDocs(prev => [...prev, ...files]) }}
+        onClick={() => moreDocsRef.current?.click()}
+        onMouseEnter={e => e.currentTarget.style.borderColor = accentColor}
+        onMouseLeave={e => e.currentTarget.style.borderColor = borderColor}
+      >
+        <Upload size={24} style={{ color: accentColor, marginBottom: 8 }}/>
+        <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text)' }}>
+          Drag &amp; drop files here, or <span style={{ color: 'var(--primary-light)', textDecoration: 'underline' }}>browse</span>
+        </div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: 4 }}>Supports PDFs, images, etc. Multiple files allowed.</div>
+        <input type="file" ref={moreDocsRef} onChange={handleNewDocs} multiple style={{ display: 'none' }}/>
+      </div>
+
+      {newDocs.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Selected Files ({newDocs.length})</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {newDocs.map((file, index) => (
+              <div key={index} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem' }}>
+                <span style={{ color: 'var(--text)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '80%' }}>{file.name}</span>
+                <button type="button" onClick={() => removeNewDoc(index)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                  <X size={14}/>
+                </button>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+            <button type="button" className="btn-primary" onClick={submitNewDocs} disabled={uploadingDocs}
+              style={{ padding: '8px 16px', fontSize: '0.85rem', boxShadow: 'none', background: buttonGradient }}>
+              {uploadingDocs ? 'Uploading...' : 'Submit Documents'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

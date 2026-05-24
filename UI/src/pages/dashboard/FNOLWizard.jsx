@@ -222,6 +222,7 @@ export default function FNOLWizard() {
         contact_phone: '',
         temp_file_path: extracted.temp_file_path || null,
         temp_file_paths: extracted.temp_file_paths || null,
+        documents: extracted.documents || [],   // enriched doc list with file_path + category
         extracted_data: extracted,
         raw_text: extracted.raw_text || '',
       })

@@ -96,6 +96,7 @@ class Claim(Base):
             "rejected",
             "closed",
             "documents_required",
+            "documents_rejected",   # adjuster rejected submitted docs, claimant must resubmit
         ),
         default="fnol_received",
         index=True,
@@ -119,6 +120,10 @@ class Claim(Base):
     document_request_message = Column(Text)
     document_request_by_role = Column(String(50))
     status_before_doc_request = Column(String(50))
+    # Document rejection tracking (adjuster rejects submitted docs)
+    document_rejection_count = Column(Integer, default=0)
+    document_rejection_message = Column(Text)
+    status_before_doc_rejection = Column(String(50))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     closed_at = Column(DateTime)
@@ -354,5 +359,20 @@ class ClaimDocument(Base):
     category = Column(String(50), nullable=False)  # 'claim_form', 'medical_report', 'test_report', 'id_card', 'other'
     raw_text = Column(Text)
     extracted_data = Column(JSON)
+    is_rejected = Column(Boolean, default=False)         # True if adjuster rejected this doc
+    rejection_reason = Column(Text)                      # reason adjuster gave
+    rejected_at = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())
 
+
+class SystemConfig(Base):
+    """Key-value store for system-wide configurable thresholds and settings."""
+    __tablename__ = "system_config"
+    id = Column(Integer, primary_key=True, index=True)
+    config_key = Column(String(100), nullable=False, unique=True, index=True)
+    config_value = Column(String(500), nullable=False)
+    value_type = Column(Enum("int", "float", "str", "bool"), default="str")
+    description = Column(String(500))
+    updated_by = Column(Integer)                          # user_id who last changed this
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

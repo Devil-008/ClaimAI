@@ -10,6 +10,10 @@ from app.database.connection import get_db
 from app.models.models import Claim, Policy, User, FNOLSubmission, ClaimDocument
 from app.controllers.auth_controller import get_current_user
 from app.services.email_escalation_service import notify_claimant_update
+from app.services import config_service
+
+import logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/claims", tags=["Claims"])
 
@@ -38,6 +42,10 @@ class ClaimOut(BaseModel):
     document_request_message: str | None = None
     document_request_by_role: str | None = None
     status_before_doc_request: str | None = None
+    # Document rejection fields
+    document_rejection_count: int | None = 0
+    document_rejection_message: str | None = None
+    status_before_doc_rejection: str | None = None
 
     class Config:
         from_attributes = True
@@ -72,6 +80,11 @@ class ClaimDecisionPayload(BaseModel):
 
 class RequestDocumentsPayload(BaseModel):
     message: str
+
+
+class RejectDocumentsPayload(BaseModel):
+    reason: str                          # why the submitted docs are rejected
+    document_ids: Optional[List[int]] = None  # specific doc IDs to mark as rejected (None = all recent)
 
 
 class ClaimDecisionOut(BaseModel):
@@ -508,8 +521,10 @@ def request_more_documents(
         raise HTTPException(status_code=404, detail="Claim not found")
 
     current_count = claim.document_request_count or 0
-    if current_count >= 3:
-        # Escalate directly to SIU Investigator
+    max_requests = config_service.get_int(db, "max_document_requests")  # from system_config
+
+    if current_count >= max_requests:
+        # Escalate directly to SIU
         claim.status = "escalated_siu"
         claim.escalation_level = 0
         claim.escalation_started_at = None
@@ -519,25 +534,23 @@ def request_more_documents(
 
         db.commit()
 
-        # Notify claimant via email
+        # Notify claimant
         notify_claimant_update(
-            db,
-            claim,
+            db, claim,
             subject=f"Claim {claim.claim_number} escalated to SIU",
             body=(
                 f"Hello,\n\n"
-                f"Your claim {claim.claim_number} has exceeded the maximum number of document requests (3) "
-                f"and has been escalated to the SIU investigator for manual investigation and re-verification.\n"
+                f"Your claim {claim.claim_number} has exceeded the maximum number of "
+                f"document requests ({max_requests}) and has been escalated to the SIU "
+                f"investigator for manual investigation.\n"
             ),
             event_type="siu_escalation_limit_exceeded",
             source_status="escalated_siu",
-            trigger_reason="Maximum document request limit reached (3 times)."
+            trigger_reason=f"Max document request limit reached ({max_requests} times)."
         )
 
-        # Trigger email to SIU Investigator
         from app.services.email_escalation_service import notify_claim_escalation
         notify_claim_escalation(db, claim)
-
         db.commit()
         return claim
 
@@ -549,17 +562,16 @@ def request_more_documents(
 
     db.commit()
 
-    # Send email to policyholder
+    # Email policyholder
     notify_claimant_update(
-        db,
-        claim,
+        db, claim,
         subject=f"Action Required: Documents needed for claim {claim.claim_number}",
         body=(
             f"Hello,\n\n"
-            f"The claims reviewer has requested additional documents to process your claim {claim.claim_number}.\n\n"
-            f"Request Details:\n"
-            f"\"{payload.message}\"\n\n"
-            f"Please upload the required documents through your claims portal as soon as possible to proceed with your claim.\n"
+            f"The claims reviewer has requested additional documents for claim {claim.claim_number}.\n\n"
+            f"Request Details:\n\"{payload.message}\"\n\n"
+            f"Please upload the required documents through your claims portal.\n"
+            f"(Request {claim.document_request_count} of {max_requests} allowed)\n"
         ),
         event_type=f"document_request_{claim.document_request_count}",
         source_status="documents_required",
@@ -567,6 +579,147 @@ def request_more_documents(
     )
 
     db.commit()
+    return claim
+
+
+@router.post("/{claim_id}/reject-documents", response_model=ClaimOut)
+def reject_documents(
+    claim_id: int,
+    payload: RejectDocumentsPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Adjuster/SIU rejects the documents submitted by the claimant and sends them
+    back for resubmission.  After max_document_rejections the claim auto-escalates
+    to SIU.
+    """
+    ALLOWED = {"adjuster", "siu_investigator", "supervisor", "admin"}
+    if current_user.role not in ALLOWED:
+        raise HTTPException(403, "Access denied")
+
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        raise HTTPException(404, "Claim not found")
+
+    # Only makes sense when the claimant has actually uploaded documents
+    if claim.status not in (
+        "escalated_adjuster", "escalated_siu", "settlement_pending",
+        "documents_required", "documents_rejected",
+    ):
+        raise HTTPException(
+            400,
+            f"Cannot reject documents while claim is in '{claim.status}' status."
+        )
+
+    max_rejections = config_service.get_int(db, "max_document_rejections")
+    current_rejections = claim.document_rejection_count or 0
+
+    # Mark specific documents as rejected if IDs provided
+    now = datetime.utcnow()
+    if payload.document_ids:
+        docs = db.query(ClaimDocument).filter(
+            ClaimDocument.claim_id == claim_id,
+            ClaimDocument.id.in_(payload.document_ids)
+        ).all()
+    else:
+        # Mark all documents for this claim as rejected
+        docs = db.query(ClaimDocument).filter(
+            ClaimDocument.claim_id == claim_id
+        ).all()
+
+    for doc in docs:
+        doc.is_rejected = True
+        doc.rejection_reason = payload.reason
+        doc.rejected_at = now
+
+    new_rejection_count = current_rejections + 1
+    claim.document_rejection_count = new_rejection_count
+    claim.document_rejection_message = payload.reason
+
+    # ── Auto-escalate to SIU if limit exceeded ────────────────
+    if new_rejection_count >= max_rejections:
+        claim.status = "escalated_siu"
+        claim.status_before_doc_rejection = claim.status
+        claim.escalation_level = 0
+        claim.escalation_started_at = None
+        claim.escalation_next_check_at = None
+        claim.escalation_last_notified_at = None
+
+        db.commit()
+
+        # Email claimant
+        notify_claimant_update(
+            db, claim,
+            subject=f"Claim {claim.claim_number} escalated to SIU after repeated document rejections",
+            body=(
+                f"Hello,\n\n"
+                f"Your claim {claim.claim_number} has been escalated to our SIU investigation team "
+                f"because the submitted documents were rejected {new_rejection_count} time(s).\n\n"
+                f"Last rejection reason: {payload.reason}\n\n"
+                f"An SIU investigator will contact you shortly.\n"
+            ),
+            event_type="siu_escalation_doc_rejection_limit",
+            source_status="escalated_siu",
+            trigger_reason=f"Document rejected {new_rejection_count}x — exceeded limit of {max_rejections}."
+        )
+
+        from app.services.email_escalation_service import notify_claim_escalation
+        notify_claim_escalation(db, claim)
+
+        from app.models.models import Notification
+        db.add(Notification(
+            user_id=claim.claimant_id,
+            title=f"🚨 Claim {claim.claim_number} Escalated to SIU",
+            message=(
+                f"Your documents were rejected {new_rejection_count} time(s). "
+                f"The claim has been escalated to SIU for investigation."
+            ),
+            claim_id=claim.id,
+            is_read=False,
+        ))
+        db.commit()
+
+        db.refresh(claim)
+        return claim
+
+    # ── Send back to claimant for resubmission ────────────────
+    claim.status_before_doc_rejection = claim.status
+    claim.status = "documents_rejected"
+    db.commit()
+
+    # Email claimant
+    notify_claimant_update(
+        db, claim,
+        subject=f"Action Required: Documents rejected for claim {claim.claim_number}",
+        body=(
+            f"Hello,\n\n"
+            f"The documents you submitted for claim {claim.claim_number} have been reviewed "
+            f"and rejected for the following reason:\n\n"
+            f"  Reason: {payload.reason}\n\n"
+            f"Please re-upload the correct/updated documents through your claims portal "
+            f"as soon as possible.\n"
+            f"(Rejection {new_rejection_count} of {max_rejections} allowed before escalation)\n"
+        ),
+        event_type=f"document_rejection_{new_rejection_count}",
+        source_status="documents_rejected",
+        trigger_reason=payload.reason
+    )
+
+    from app.models.models import Notification
+    db.add(Notification(
+        user_id=claim.claimant_id,
+        title=f"❌ Documents Rejected — Claim {claim.claim_number}",
+        message=(
+            f"Your submitted documents were rejected. Reason: {payload.reason}. "
+            f"Please resubmit. ({new_rejection_count}/{max_rejections})"
+        ),
+        claim_id=claim.id,
+        is_read=False,
+    ))
+    db.commit()
+
+    db.refresh(claim)
     return claim
 
 
@@ -585,8 +738,13 @@ async def upload_more_documents(
     if not claim:
         raise HTTPException(status_code=404, detail="Claim not found")
 
-    if claim.status != "documents_required":
-        raise HTTPException(status_code=400, detail="Documents are not currently requested for this claim")
+    if claim.status not in ("documents_required", "documents_rejected"):
+        raise HTTPException(
+            status_code=400,
+            detail="Documents can only be uploaded when status is 'documents_required' or 'documents_rejected'"
+        )
+
+    is_resubmission = (claim.status == "documents_rejected")  # track which flow
 
     uploaded_files = []
     if files:
@@ -681,14 +839,23 @@ async def upload_more_documents(
         )
         db.add(claim_doc)
 
-    # Revert back status or fallback
-    back_status = claim.status_before_doc_request or "escalated_adjuster"
-    if back_status in ("documents_required", "fnol_received", "settled", "rejected", "closed"):
-        back_status = "escalated_adjuster"
-
-    claim.status = back_status
-    claim.status_before_doc_request = None
-    claim.document_request_message = None
+    # Revert back to the status before the doc request or rejection
+    if is_resubmission:
+        # Coming from documents_rejected — restore pre-rejection status
+        back_status = claim.status_before_doc_rejection or "escalated_adjuster"
+        if back_status in ("documents_rejected", "fnol_received", "settled", "rejected", "closed"):
+            back_status = "escalated_adjuster"
+        claim.status = back_status
+        claim.status_before_doc_rejection = None
+        claim.document_rejection_message = None
+    else:
+        # Coming from documents_required — restore pre-request status
+        back_status = claim.status_before_doc_request or "escalated_adjuster"
+        if back_status in ("documents_required", "fnol_received", "settled", "rejected", "closed"):
+            back_status = "escalated_adjuster"
+        claim.status = back_status
+        claim.status_before_doc_request = None
+        claim.document_request_message = None
 
     db.commit()
 
