@@ -27,12 +27,9 @@ const CLAIM_TYPE_LABELS = {
 
 const REQUIRED_DOCS = [
   { key: 'claim_form', label: 'Claim Form' },
-  { key: 'hospital_bills', label: 'Hospital Bills' },
   { key: 'medical_report', label: 'Medical Report' },
   { key: 'test_report', label: 'Test Report' },
   { key: 'id_card', label: 'Identity Proof (e.g., Aadhaar, PAN, Voter ID)' },
-  { key: 'discharge_summary', label: 'Discharge Summary' },
-  { key: 'policy_details', label: 'Policy Document' },
 ]
 
 const OUTCOME_CONFIG = {
@@ -507,9 +504,6 @@ if (res.data?.missing_categories?.length > 0) {
                         medical_report: '🏥 Medical Report',
                         test_report: '🔬 Test Report',
                         id_card: '🆔 ID Card',
-                        discharge_summary: '🏥 Discharge Summary',
-                        hospital_bills: '🏥 Hospital Bills',
-                        policy_details: '📄 Policy Details',
                         other: '📄 Other Document'
                       }
                       return (
@@ -526,7 +520,7 @@ if (res.data?.missing_categories?.length > 0) {
               )}
 
               {/* Missing Documents Alert */}
-              {/* {extracted.missing_categories && extracted.missing_categories.length > 0 && (
+              {extracted.missing_categories && extracted.missing_categories.length > 0 && (
                 <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', color: '#FCD34D', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
                     <AlertTriangle size={14} /> Missing Suggested Documents
@@ -538,9 +532,9 @@ if (res.data?.missing_categories?.length > 0) {
                     Please upload them for faster approval, or proceed if you do not have them.
                   </div>
                 </div>
-              )} */}
+              )}
 
-{showMissingModal && extracted && (
+{/* {showMissingModal && extracted && (
   <div
     style={{
       position: 'fixed',
@@ -647,7 +641,7 @@ border: '1px solid rgba(255,255,255,0.08)',
       </div>
     </div>
   </div>
-)}
+)} */}
 
               <div style={{ marginTop: 12, fontSize: '0.76rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
                 <AlertCircle size={12} /> ClaimAI-extracted — please verify before submitting.
