@@ -1,7 +1,11 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, FileText, Calendar, Tag, Activity, Zap, ChevronDown, ChevronUp, ExternalLink, Download, Upload, X } from 'lucide-react'
+import { 
+  ArrowLeft, FileText, Calendar, Tag, Activity, Zap, 
+  ChevronDown, ChevronUp, ExternalLink, Download, Upload, X,
+  Shield, CheckCircle, PieChart, ClipboardCheck 
+} from 'lucide-react'
 import api from '../../services/api'
 import { LoadingState, ErrorState } from '../../components/StateViews'
 import toast from 'react-hot-toast'
@@ -169,11 +173,18 @@ export default function ClaimDetail() {
 
       {/* Info cards */}
       <motion.div variants={fadeUp} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 16, marginBottom: 24 }}>
+          {/* { icon: FileText, label: 'Auto-Settle',    value: claim.auto_settle_eligible ? '✅ Eligible' : '—' }, */}
         {[
           { icon: Calendar, label: 'Incident Date', value: claim.incident_date ? new Date(claim.incident_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—' },
           { icon: Tag,      label: 'Priority',       value: claim.priority?.charAt(0).toUpperCase() + claim.priority?.slice(1) },
           { icon: Activity, label: 'Channel',        value: claim.channel?.toUpperCase() },
-          { icon: FileText, label: 'Auto-Settle',    value: claim.auto_settle_eligible ? '✅ Eligible' : '—' },
+          { icon: Calendar, label: 'Claim date',    value: claim.created_at ? new Date(claim.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—' },
+          { icon: Tag,      label: 'Claim type',    value: claim.claim_type.toUpperCase() },
+          { icon: Activity, label: 'Status',        value: claim.status.toUpperCase() },
+          { icon: Shield,   label: 'Coverage limit', value: claim.policy_coverage_limit },
+          { icon: CheckCircle, label: 'Coverage settled', value: claim.policy_total_settled_amount },
+          { icon: PieChart, label: 'Coverage remaining', value: claim.policy_remaining_capacity },
+          { icon: ClipboardCheck, label: 'Adjuster recommended', value: claim.adjuster_recommended_amount },
         ].map(item => (
           <div key={item.label} className="stat-card" style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: '14px 16px' }}>
             <item.icon size={18} color="var(--primary-light)"/>
