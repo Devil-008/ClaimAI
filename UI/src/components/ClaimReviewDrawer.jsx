@@ -62,10 +62,11 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
       setPipeline(pr.data)
       setDocuments(dr.data || [])
       const trace = pr.data?.pipeline_trace || []
+      const a5 = trace.find(s => s.step === 'A5_Fraud_Risk_Scoring')
       const a4 = trace.find(s => s.step === 'A4_Damage_Assessment')
-      const est = a4?.result?.net_estimate
-      if (est) {
-        setCustomAmount(est.toString())
+      const recPayout = a5?.result?.recommended_payout ?? a4?.result?.net_estimate
+      if (recPayout) {
+        setCustomAmount(recPayout.toString())
       }
     }).finally(() => setLoading(false))
   }, [claimId])
@@ -299,10 +300,13 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
                         </div>
                       </div>
                       <div style={{ marginLeft:'auto', textAlign:'right', fontSize:'0.78rem', color:'var(--text-muted)' }}>
-                        Est. Net<br/>
-                        <strong style={{ color:'var(--text)', fontSize:'0.95rem' }}>
-                          ₹{Number(dmgRes.net_estimate || 0).toLocaleString('en-IN')}
+                        Recommended Payout<br/>
+                        <strong style={{ color:'var(--primary-light)', fontSize:'0.95rem' }}>
+                          ₹{Number(fraudRes.recommended_payout !== undefined ? fraudRes.recommended_payout : (dmgRes.net_estimate || 0)).toLocaleString('en-IN')}
                         </strong>
+                        <div style={{ fontSize:'0.68rem', color:'var(--text-dim)', marginTop: 2 }}>
+                          (Est. Net: ₹{Number(dmgRes.net_estimate || 0).toLocaleString('en-IN')})
+                        </div>
                       </div>
                     </div>
                     {(fraudRes.red_flags || []).length > 0 && (
@@ -422,10 +426,10 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
                           <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                             {user?.role === 'adjuster' ? 'Recommended Amount (₹)' : 'Settlement Amount (₹)'}
                           </span>
-                          {dmgRes.net_estimate && (
+                          {(fraudRes.recommended_payout !== undefined ? fraudRes.recommended_payout : dmgRes.net_estimate) && (
                             <button
                               type="button"
-                              onClick={() => setCustomAmount(dmgRes.net_estimate.toString())}
+                              onClick={() => setCustomAmount((fraudRes.recommended_payout !== undefined ? fraudRes.recommended_payout : dmgRes.net_estimate).toString())}
                               style={{
                                 background: 'none',
                                 border: 'none',
@@ -437,7 +441,7 @@ export default function ClaimReviewDrawer({ claimId, onClose, onDecision }) {
                                 textDecoration: 'underline'
                               }}
                             >
-                              Use AI Estimate (₹{Number(dmgRes.net_estimate).toLocaleString('en-IN')})
+                              Use AI Recommended (₹{Number(fraudRes.recommended_payout !== undefined ? fraudRes.recommended_payout : dmgRes.net_estimate).toLocaleString('en-IN')})
                             </button>
                           )}
                         </div>

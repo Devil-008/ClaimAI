@@ -269,8 +269,23 @@ def claim_decision(
             settlement.gross_amount = round(payload.amount, 2)
             settlement.deductible_deducted = 0.00
         else:
-            if not settlement.net_payout:
-                settlement.net_payout = 0
+            from app.models.models import PipelineTrace
+            trace_rec = db.query(PipelineTrace).filter(PipelineTrace.claim_id == claim_id).first()
+            rec_payout = 0.0
+            if trace_rec and trace_rec.trace:
+                for step_data in trace_rec.trace:
+                    if step_data.get("step") == "A5_Fraud_Risk_Scoring":
+                        rec_payout = step_data.get("result", {}).get("recommended_payout", 0.0)
+                        break
+            if not rec_payout:
+                if trace_rec and trace_rec.trace:
+                    for step_data in trace_rec.trace:
+                        if step_data.get("step") == "A4_Damage_Assessment":
+                            rec_payout = step_data.get("result", {}).get("net_estimate", 0.0)
+                            break
+            settlement.net_payout = round(rec_payout, 2)
+            settlement.gross_amount = round(rec_payout, 2)
+            settlement.deductible_deducted = 0.00
 
         claim.status = "settled"
         claim.closed_at = now
@@ -281,7 +296,6 @@ def claim_decision(
                 f"Claim partially approved by {current_user.full_name} for ₹{settlement.net_payout:,.2f}. "
                 f"Payment {pay_ref} initiated — expected by {exp_by.strftime('%d %b %Y')}."
             )
-            # Send partial approval email
             notify_claimant_update(
                 db,
                 claim,
@@ -297,17 +311,16 @@ def claim_decision(
             )
         else:
             msg = (
-                f"Claim approved by {current_user.full_name}. "
+                f"Claim approved by {current_user.full_name} for ₹{settlement.net_payout:,.2f}. "
                 f"Payment {pay_ref} initiated — expected by {exp_by.strftime('%d %b %Y')}."
             )
-            # Send approval email
             notify_claimant_update(
                 db,
                 claim,
                 subject=f"Claim {claim.claim_number} was approved",
                 body=(
                     f"Hello,\n\n"
-                    f"Your claim {claim.claim_number} has been fully approved and settled.\n"
+                    f"Your claim {claim.claim_number} has been fully approved and settled for ₹{settlement.net_payout:,.2f}.\n"
                     f"Please find the payment details in your dashboard.\n"
                 ),
                 event_type="manual_approve",

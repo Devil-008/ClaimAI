@@ -243,6 +243,11 @@ export default function FNOLWizard() {
     </motion.div>
   )
 
+  const missingSuggested = extracted?.missing_categories?.filter(c =>
+    ['claim_form', 'medical_report', 'test_report', 'id_card'].includes(c)
+  ) || [];
+  const hasAllSuggested = !extracted || missingSuggested.length === 0;
+
   return (
     <motion.div initial="hidden" animate="visible" variants={stagger} style={{ maxWidth: 720 }}>
 
@@ -368,7 +373,7 @@ export default function FNOLWizard() {
               onMouseEnter={e => e.currentTarget.style.background = 'rgba(79,70,229,0.18)'}
               onMouseLeave={e => e.currentTarget.style.background = 'rgba(79,70,229,0.1)'}
             >
-              <FileText size={12}/> Download Sample Form
+              <FileText size={12} /> Download Sample Form
             </a>
           </div>
 
@@ -386,7 +391,7 @@ export default function FNOLWizard() {
                 }}>
                 <Upload size={28} style={{ color: 'var(--text-dim)', marginBottom: 10 }} />
                 <div style={{ fontWeight: 600, marginBottom: 6 }}>Drop your claim documents here</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginBottom: 14 }}>PDF, JPG, PNG, Word · Max 5 MB per file</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginBottom: 14 }}>PDF,Word · Max 5 MB per file</div>
                 <button className="btn-primary" style={{ fontSize: '0.82rem', padding: '8px 18px' }}
                   onClick={e => { e.stopPropagation(); fileRef.current?.click() }}>Browse Files</button>
                 <input ref={fileRef} type="file" multiple hidden accept=".pdf,.jpg,.jpeg,.png,.txt,.doc,.docx" onChange={onFileInput} />
@@ -419,7 +424,7 @@ export default function FNOLWizard() {
                   </button>
                   {docFiles.length > 0 && !extracted && !extracting && (
                     <button className="btn-primary" style={{ fontSize: '0.82rem', padding: '6px 16px', background: '#10B981', borderColor: '#10B981', color: '#fff', marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }} onClick={triggerExtraction}>
-                      <Sparkles size={14} /> AI Extract Details
+                      <Sparkles size={14} /> CliamAI Extract Details
                     </button>
                   )}
                   <input ref={fileRef} type="file" multiple hidden accept=".pdf,.jpg,.jpeg,.png,.txt,.doc,.docx" onChange={onFileInput} />
@@ -429,7 +434,7 @@ export default function FNOLWizard() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', background: 'rgba(99,102,241,0.05)', borderRadius: 10, border: '1px solid rgba(99,102,241,0.12)' }}>
                     <Loader2 size={16} className="spin" style={{ color: 'var(--primary)' }} />
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>AI Extracting Claim Details…</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>ClaimAI Extracting Claim Details…</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Reading documents and extracting structured data</div>
                     </div>
                   </div>
@@ -447,7 +452,7 @@ export default function FNOLWizard() {
 
           <div style={{ marginTop: 12, fontSize: '0.78rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
             <Sparkles size={12} style={{ color: 'var(--primary-light)' }} />
-            ClaimAI will extract: claim type, incident date, description, location automatically
+            Required documents: CLAIM FORM, MEDICAL REPORT, TEST REPORT, ID CARD.
           </div>
         </motion.div>
 
@@ -461,7 +466,7 @@ export default function FNOLWizard() {
                 <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Step 3 — Review Extracted Details</span>
                 {extracted.extracted && (
                   <span style={{ marginLeft: 'auto', fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(16,185,129,0.15)', color: '#10B981', border: '1px solid rgba(16,185,129,0.25)' }}>
-                    ✓ AI Extracted
+                    ✓ ClaimAI Extracted
                   </span>
                 )}
               </div>
@@ -517,7 +522,7 @@ export default function FNOLWizard() {
               )}
 
               <div style={{ marginTop: 12, fontSize: '0.76rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
-                <AlertCircle size={12} /> AI-extracted — please verify before submitting.
+                <AlertCircle size={12} /> ClaimAI-extracted — please verify before submitting.
               </div>
             </motion.div>
           )}
@@ -543,11 +548,18 @@ export default function FNOLWizard() {
 
         {/* Submit */}
         <motion.div variants={fadeUp} style={{ display: 'flex', gap: 12 }}>
-          <button className="btn-primary" onClick={handleSubmit}
-            disabled={loading || extracting || docFiles.length === 0 || !selectedPol || !extracted}
-            style={{ gap: 8, opacity: (docFiles.length === 0 || !selectedPol || !extracted || extracting) ? 0.5 : 1 }}>
-            {loading ? <><Loader2 size={15} className="spin" /> Submitting…</> : <><Send size={15} />Read Cliam Documents</>}
-          </button>
+          {hasAllSuggested ? (
+            <button className="btn-primary" onClick={handleSubmit}
+              disabled={loading || extracting || docFiles.length === 0 || !selectedPol || !extracted}
+              style={{ gap: 8, opacity: (docFiles.length === 0 || !selectedPol || !extracted || extracting) ? 0.5 : 1 }}>
+              {loading ? <><Loader2 size={15} className="spin" /> Submitting…</> : <><Send size={15} />Read Claim Documents</>}
+            </button>
+          ) : (
+            <button className="btn-primary" onClick={() => fileRef.current?.click()}
+              style={{ gap: 8, background: '#F59E0B', borderColor: '#F59E0B', color: '#fff' }}>
+              <Upload size={15} /> Upload More Documents
+            </button>
+          )}
           <button className="btn-ghost" onClick={() => navigate(-1)}>Cancel</button>
         </motion.div>
 

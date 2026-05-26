@@ -22,10 +22,37 @@ def _next_business_day(dt: datetime, days: int) -> datetime:
 
 
 def run(db: Session, claim: Claim, damage_result: dict, fraud_result: dict) -> dict:
-    net_payout  = damage_result.get("net_estimate", 0)
+    from sqlalchemy import func
+    from app.models.models import Policy
+
+    net_estimate = damage_result.get("net_estimate", 0)
     gross       = damage_result.get("estimated_gross", 0)
     deductible  = damage_result.get("deductible", 0)
     fraud_score = fraud_result.get("fraud_score", 0)
+
+    # 1. Fetch recommended payout from fraud scoring
+    recommended_payout = fraud_result.get("recommended_payout")
+    if recommended_payout is None:
+        # Fallback calculation
+        base_ratio = 0.85
+        ratio_reduction = (fraud_score * 0.5) + (len(fraud_result.get("red_flags", [])) * 0.05)
+        final_ratio = max(0.10, base_ratio - ratio_reduction)
+        recommended_payout = round(net_estimate * final_ratio, 2)
+
+    # 2. Check remaining capacity limit on policy
+    total_settled = db.query(func.sum(Settlement.net_payout)).join(Claim, Claim.id == Settlement.claim_id).filter(
+        Claim.policy_id == claim.policy_id,
+        Claim.status == "settled",
+        Claim.id != claim.id
+    ).scalar() or 0.0
+    total_settled = float(total_settled)
+
+    policy = db.query(Policy).filter(Policy.id == claim.policy_id).first()
+    coverage_limit = float(policy.coverage_limit or 0) if policy else 0.0
+    remaining_capacity = max(0.0, coverage_limit - total_settled)
+
+    # 3. Final payout is capped at recommended payout and remaining capacity
+    net_payout = min(recommended_payout, remaining_capacity)
 
     # Generate unique payment reference ID
     pay_ref = "PAY-" + datetime.utcnow().strftime("%Y%m%d") + "-" + \

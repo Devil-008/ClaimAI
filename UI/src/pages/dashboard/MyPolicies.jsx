@@ -22,9 +22,10 @@ const fadeUp = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }
 const stagger = { visible: { transition: { staggerChildren: 0.07 } } }
 
 function StatusBadge({ policy }) {
-  if (policy.is_expired) return <span className="badge badge-danger">Expired</span>
-  if (policy.days_to_expiry <= 30) return <span className="badge badge-warning">Expiring Soon</span>
-  return <span className="badge badge-success">Active</span>
+  const style = { flexShrink: 0, whiteSpace: 'nowrap' }
+  if (policy.is_expired) return <span className="badge badge-danger" style={style}>Expired</span>
+  if (policy.days_to_expiry <= 30) return <span className="badge badge-warning" style={style}>Expiring Soon</span>
+  return <span className="badge badge-success" style={style}>Active</span>
 }
 
 function PolicyCard({ policy, onFileClaim, onDelete, onView }) {
@@ -42,18 +43,18 @@ function PolicyCard({ policy, onFileClaim, onDelete, onView }) {
       display: 'flex', flexDirection: 'column', gap: 14,
     }}>
       {/* Header row */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
           <div style={{
             width: 44, height: 44, borderRadius: 12,
             background: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '1.3rem',
+            fontSize: '1.3rem', flexShrink: 0,
           }}>{icon}</div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text)' }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {policy.policy_number}
             </div>
-            <div style={{ fontSize: '0.78rem', color: color, fontWeight: 600, marginTop: 2 }}>
+            <div style={{ fontSize: '0.78rem', color: color, fontWeight: 600, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${policy.policy_type.charAt(0).toUpperCase() + policy.policy_type.slice(1)} Insurance${policy.coverage_type ? ` — ${policy.coverage_type}` : ''}`}>
               {policy.policy_type.charAt(0).toUpperCase() + policy.policy_type.slice(1)} Insurance
               {policy.coverage_type && ` — ${policy.coverage_type}`}
             </div>
@@ -218,7 +219,7 @@ export default function MyPolicies() {
 
       {/* Policy cards */}
       {!loading && !error && policies.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(340px,1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(380px,1fr))', gap: 16 }}>
           {policies.map(p => (
             <PolicyCard
               key={p.id}

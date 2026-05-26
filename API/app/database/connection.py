@@ -15,8 +15,11 @@ DATABASE_URL = (
 
 engine = create_engine(
     DATABASE_URL,
-    pool_pre_ping=True,
-    pool_recycle=3600,
+    pool_pre_ping=True,      # Test connection health before using from pool
+    pool_recycle=1800,       # Recycle connections every 30 min (before MySQL wait_timeout)
+    pool_size=5,             # Keep 5 persistent connections
+    max_overflow=10,         # Allow up to 10 extra connections under load
+    pool_timeout=30,         # Wait up to 30s for a free connection
     echo=(settings.APP_ENV == "development"),
 )
 

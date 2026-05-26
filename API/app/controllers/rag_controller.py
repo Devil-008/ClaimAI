@@ -311,9 +311,10 @@ async def rag_chat_response(
             )
 
         # 4. Search ChromaDB for relevant chunks
+        # Returns: shared knowledge_base chunks (all users) + user's own user_data chunks
         try:
             relevant_chunks = vector_store_service.search_similar_chunks(
-                query, top_k=req.top_k
+                query, top_k=req.top_k, user_id=current_user.id
             )
         except Exception as e:
             logger.error(f"Error searching vector store: {e}")
