@@ -1230,6 +1230,80 @@ def add_manual(payload: PolicyManualPayload, db: Session = Depends(get_db), user
     db.add(p)
     db.commit()
     db.refresh(p)
+
+    # Extract raw text from file if it exists
+    raw_text = ""
+    if p.file_path and os.path.exists(p.file_path):
+        try:
+            ext = os.path.splitext(p.file_path)[1].lower()
+            raw_text = _extract_text(p.file_path, ext)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to extract raw text from file: {e}")
+
+    # Build structured text summary of standard details
+    policy_info = []
+    policy_info.append(f"Policy Number: {p.policy_number}")
+    policy_info.append(f"Policyholder Name: {p.policyholder_name or 'N/A'}")
+    policy_info.append(f"Nominee Name: {p.nominee_name or 'N/A'}")
+    policy_info.append(f"Insurance Company: {p.insurance_company or 'N/A'}")
+    policy_info.append(f"Plan Name: {p.plan_name or 'N/A'}")
+    policy_info.append(f"Policy Type: {p.policy_type}")
+    policy_info.append(f"Coverage Type: {p.coverage_type or 'N/A'}")
+    policy_info.append(f"Coverage Limit: INR {p.coverage_limit}")
+    policy_info.append(f"Deductible: INR {p.deductible}")
+    policy_info.append(f"Premium: INR {p.premium}")
+    policy_info.append(f"Effective Date: {p.effective_date}")
+    policy_info.append(f"Expiry Date: {p.expiry_date}")
+    if p.benefits:
+        policy_info.append(f"Benefits:\n{p.benefits}")
+    if p.exclusions:
+        policy_info.append(f"Exclusions:\n{p.exclusions}")
+
+    if p.extra_details:
+        try:
+            extra = json.loads(p.extra_details)
+            easy = extra.get("human_friendly_summary", {}).get("easy_summary", {})
+            if easy:
+                if easy.get("what_is_covered"):
+                    policy_info.append(f"What is Covered: {', '.join(easy['what_is_covered'])}")
+                if easy.get("what_is_not_covered"):
+                    policy_info.append(f"What is Not Covered: {', '.join(easy['what_is_not_covered'])}")
+                if easy.get("important_limits"):
+                    policy_info.append(f"Important Limits: {', '.join(easy['important_limits'])}")
+                if easy.get("important_waiting_periods"):
+                    policy_info.append(f"Important Waiting Periods: {', '.join(easy['important_waiting_periods'])}")
+                if easy.get("claim_process_summary"):
+                    policy_info.append(f"Claim Process Summary: {easy['claim_process_summary']}")
+        except Exception:
+            pass
+
+    structured_text = "\n".join(policy_info)
+    if raw_text and raw_text.strip():
+        combined_text = f"{structured_text}\n\n=== FULL POLICY DOCUMENT DETAILS ===\n\n{raw_text}"
+    else:
+        combined_text = structured_text
+
+    p.raw_extracted_text = combined_text
+    db.commit()
+    db.refresh(p)
+
+    # Index policy in Vector Store
+    try:
+        from app.services.vector_store_service import VectorStoreService
+        vss = VectorStoreService()
+        chunks = vss.chunk_text(combined_text)
+        vss.save_document_chunks(
+            chunks=chunks,
+            document_id=f"policy_{p.id}",
+            filename=os.path.basename(p.file_path) if p.file_path else f"Policy_{p.policy_number}",
+            source_type="user_data",
+            user_id=user.id
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to save policy chunks to vector store: {e}")
+
     return {"message": "Policy added successfully", "policy": _policy_out(p, db)}
 
 
@@ -1316,6 +1390,87 @@ def edit_policy(
 
     db.commit()
     db.refresh(p)
+
+    # Delete old chunks
+    try:
+        from app.services.vector_store_service import VectorStoreService
+        vss = VectorStoreService()
+        vss.delete_document_chunks(f"policy_{p.id}")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to delete old policy chunks: {e}")
+
+    # Extract raw text from file if it exists
+    raw_text = ""
+    if p.file_path and os.path.exists(p.file_path):
+        try:
+            ext = os.path.splitext(p.file_path)[1].lower()
+            raw_text = _extract_text(p.file_path, ext)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to extract raw text from file: {e}")
+
+    # Build structured text summary of standard details
+    policy_info = []
+    policy_info.append(f"Policy Number: {p.policy_number}")
+    policy_info.append(f"Policyholder Name: {p.policyholder_name or 'N/A'}")
+    policy_info.append(f"Nominee Name: {p.nominee_name or 'N/A'}")
+    policy_info.append(f"Insurance Company: {p.insurance_company or 'N/A'}")
+    policy_info.append(f"Plan Name: {p.plan_name or 'N/A'}")
+    policy_info.append(f"Policy Type: {p.policy_type}")
+    policy_info.append(f"Coverage Type: {p.coverage_type or 'N/A'}")
+    policy_info.append(f"Coverage Limit: INR {p.coverage_limit}")
+    policy_info.append(f"Deductible: INR {p.deductible}")
+    policy_info.append(f"Premium: INR {p.premium}")
+    policy_info.append(f"Effective Date: {p.effective_date}")
+    policy_info.append(f"Expiry Date: {p.expiry_date}")
+    if p.benefits:
+        policy_info.append(f"Benefits:\n{p.benefits}")
+    if p.exclusions:
+        policy_info.append(f"Exclusions:\n{p.exclusions}")
+
+    if p.extra_details:
+        try:
+            extra = json.loads(p.extra_details)
+            easy = extra.get("human_friendly_summary", {}).get("easy_summary", {})
+            if easy:
+                if easy.get("what_is_covered"):
+                    policy_info.append(f"What is Covered: {', '.join(easy['what_is_covered'])}")
+                if easy.get("what_is_not_covered"):
+                    policy_info.append(f"What is Not Covered: {', '.join(easy['what_is_not_covered'])}")
+                if easy.get("important_limits"):
+                    policy_info.append(f"Important Limits: {', '.join(easy['important_limits'])}")
+                if easy.get("important_waiting_periods"):
+                    policy_info.append(f"Important Waiting Periods: {', '.join(easy['important_waiting_periods'])}")
+                if easy.get("claim_process_summary"):
+                    policy_info.append(f"Claim Process Summary: {easy['claim_process_summary']}")
+        except Exception:
+            pass
+
+    structured_text = "\n".join(policy_info)
+    if raw_text and raw_text.strip():
+        combined_text = f"{structured_text}\n\n=== FULL POLICY DOCUMENT DETAILS ===\n\n{raw_text}"
+    else:
+        combined_text = structured_text
+
+    p.raw_extracted_text = combined_text
+    db.commit()
+    db.refresh(p)
+
+    # Index policy in Vector Store
+    try:
+        chunks = vss.chunk_text(combined_text)
+        vss.save_document_chunks(
+            chunks=chunks,
+            document_id=f"policy_{p.id}",
+            filename=os.path.basename(p.file_path) if p.file_path else f"Policy_{p.policy_number}",
+            source_type="user_data",
+            user_id=user.id
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to save policy chunks to vector store: {e}")
+
     return {"message": "Policy updated", "policy": _policy_out(p, db)}
 
 
@@ -1379,6 +1534,15 @@ def delete_policy(policy_id: int, db: Session = Depends(get_db), user: User = De
         db.query(Settlement).filter(Settlement.claim_id.in_(claim_ids)).delete(synchronize_session=False)
         db.query(AuditLog).filter(AuditLog.claim_id.in_(claim_ids)).delete(synchronize_session=False)
         db.query(Claim).filter(Claim.id.in_(claim_ids)).delete(synchronize_session=False)
+
+    # Delete chunks from Vector Store
+    try:
+        from app.services.vector_store_service import VectorStoreService
+        vss = VectorStoreService()
+        vss.delete_document_chunks(f"policy_{p.id}")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to delete policy chunks from vector store: {e}")
 
     db.delete(p)
     db.commit()

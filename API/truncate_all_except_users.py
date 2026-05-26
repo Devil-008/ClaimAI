@@ -15,6 +15,8 @@ from sqlalchemy import text
 
 # Order matters — child tables first to avoid FK constraint errors
 TABLES_TO_CLEAR = [
+    "chat_messages",
+    "chat_sessions",
     "notifications",
     "audit_logs",
     "pipeline_traces",
