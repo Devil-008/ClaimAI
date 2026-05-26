@@ -373,14 +373,14 @@ async def extract_claim_from_doc(
                     {"filename": info["filename"], "category": "other", "extracted_data": {}}
                     for info in saved_files_info
                 ],
-                "missing_categories": ["claim_form", "medical_report", "test_report", "id_card"],
+                "missing_categories": ["claim_form", "medical_report", "test_report", "id_card","discharge_summary","hospital_bills","policy_details"],
                 "raw_text": combined_text
             }
 
         prompt = """You are a Claims Intake AI. Analyze the provided claim document context, which contains text and/or images from one or more uploaded files.
 
 You must:
-1. Classify each document into one of: 'claim_form', 'medical_report', 'test_report', 'id_card', 'other'.
+1. Classify each document into one of: 'claim_form', 'medical_report', 'test_report', 'id_card','discharge_summary', 'hospital_bills', 'policy_details', 'other'.
 2. Extract key structured metadata (e.g. names, dates, amounts, ID numbers, diagnoses, doctor names) per document.
 3. Generate a unified claim summary (claim_type, incident_date, incident_description, incident_location).
 4. Identify which of the 4 essential categories are missing from the uploaded files: 'claim_form', 'medical_report', 'test_report', 'id_card'.
@@ -403,7 +403,7 @@ Return ONLY a valid JSON object matching this schema exactly:
     }
   ],
   "missing_categories": [
-     // List of missing categories from: ["claim_form", "medical_report", "test_report", "id_card"]
+     // List of missing categories from: ["claim_form", "medical_report", "test_report", "id_card", "discharge_summary", "hospital_bills", "policy_details"]
   ]
 }
 
@@ -524,7 +524,7 @@ Rules:
         for doc in documents_list:
             fname = doc.get("filename", "")
             category = doc.get("category", "other")
-            if category not in ("claim_form", "medical_report", "test_report", "id_card", "other"):
+            if category not in ("claim_form", "medical_report", "test_report", "id_card", "discharge_summary", "hospital_bills", "policy_details", "other"):
                 category = "other"
             
             ext_data = doc.get("extracted_data", {})
@@ -623,7 +623,7 @@ Rules:
                 {"filename": info["filename"], "category": "other", "extracted_data": {}}
                 for info in saved_files_info
             ],
-            "missing_categories": ["claim_form", "medical_report", "test_report", "id_card"],
+            "missing_categories": ["claim_form", "medical_report", "test_report", "id_card", "discharge_summary", "hospital_bills", "policy_details"],
             "raw_text": combined_text
         }
     except Exception as e:
@@ -664,7 +664,7 @@ Rules:
                 {"filename": info["filename"], "category": "other", "extracted_data": {}}
                 for info in saved_files_info
             ],
-            "missing_categories": ["claim_form", "medical_report", "test_report", "id_card"],
+            "missing_categories": ["claim_form", "medical_report", "test_report", "id_card", "discharge_summary", "hospital_bills", "policy_details"],
             "raw_text": combined_text
         }
 

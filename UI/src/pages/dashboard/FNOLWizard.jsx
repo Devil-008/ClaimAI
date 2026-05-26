@@ -25,6 +25,16 @@ const CLAIM_TYPE_LABELS = {
   other: '📋 Other',
 }
 
+const REQUIRED_DOCS = [
+  { key: 'claim_form', label: 'Claim Form' },
+  { key: 'hospital_bills', label: 'Hospital Bills' },
+  { key: 'medical_report', label: 'Medical Report' },
+  { key: 'test_report', label: 'Test Report' },
+  { key: 'id_card', label: 'Identity Proof (e.g., Aadhaar, PAN, Voter ID)' },
+  { key: 'discharge_summary', label: 'Discharge Summary' },
+  { key: 'policy_details', label: 'Policy Document' },
+]
+
 const OUTCOME_CONFIG = {
   auto_settled: { icon: CheckCircle2, color: '#10B981', label: 'Auto-Settled ✅', bg: 'rgba(16,185,129,0.1)' },
   adjuster_escalated: { icon: User, color: '#F59E0B', label: 'Sent to Adjuster 📋', bg: 'rgba(245,158,11,0.1)' },
@@ -143,6 +153,8 @@ export default function FNOLWizard() {
   const [extracting, setExtracting] = useState(false)
   const [extracted, setExtracted] = useState(null)
   const [extractError, setExtractError] = useState(null)
+  // const [extractError, setExtractError] = useState(null)
+  const [showMissingModal, setShowMissingModal] = useState(false)
 
   /* submit */
   const [loading, setLoading] = useState(false)
@@ -194,6 +206,10 @@ export default function FNOLWizard() {
       })
       const res = await api.post('/fnol/extract-from-doc', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       setExtracted(res.data)
+if (res.data?.missing_categories?.length > 0) {
+  setShowMissingModal(true)
+}
+
       toast.success('✨ Details extracted from all documents!')
     } catch {
       setExtractError('AI extraction failed. Please try again or fill manually.')
@@ -491,6 +507,9 @@ export default function FNOLWizard() {
                         medical_report: '🏥 Medical Report',
                         test_report: '🔬 Test Report',
                         id_card: '🆔 ID Card',
+                        discharge_summary: '🏥 Discharge Summary',
+                        hospital_bills: '🏥 Hospital Bills',
+                        policy_details: '📄 Policy Details',
                         other: '📄 Other Document'
                       }
                       return (
@@ -507,7 +526,7 @@ export default function FNOLWizard() {
               )}
 
               {/* Missing Documents Alert */}
-              {extracted.missing_categories && extracted.missing_categories.length > 0 && (
+              {/* {extracted.missing_categories && extracted.missing_categories.length > 0 && (
                 <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', color: '#FCD34D', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
                     <AlertTriangle size={14} /> Missing Suggested Documents
@@ -519,7 +538,116 @@ export default function FNOLWizard() {
                     Please upload them for faster approval, or proceed if you do not have them.
                   </div>
                 </div>
-              )}
+              )} */}
+
+{showMissingModal && extracted && (
+  <div
+    style={{
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(0,0,0,0.65)',
+      zIndex: 9999,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 20,
+    }}
+  >
+    <div
+      style={{
+        width: 620,
+        maxWidth: '95vw',
+        maxHeight: '85vh',
+        overflowY: 'auto',
+        background: 'linear-gradient(180deg, rgba(15,23,42,0.96), rgba(30,41,59,0.96))',
+border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 12,
+        padding: 26,
+        boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+        <AlertTriangle size={22} color="#dc2626" />
+        <h2 style={{ color: '#b91c1c', margin: 0, fontSize: 24, fontWeight: 800 }}>
+          Missing Required Documents
+        </h2>
+      </div>
+
+      <p style={{ color: '#334155', fontWeight: 600, marginBottom: 18 }}>
+        Here is the document validation summary for your upload:
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {REQUIRED_DOCS.map((doc) => {
+          const missing = extracted.missing_categories?.includes(doc.key)
+
+          return (
+            <div
+              key={doc.key}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '14px 16px',
+                borderRadius: 9,
+                background: missing ? '#f0c8e1' : '#c8ffdc',
+                color: missing ? '#991b1b' : '#166534',
+                fontWeight: 700,
+              }}
+            >
+              <span style={{ fontSize: 20 }}>
+                {missing ? '❌' : '✅'}
+              </span>
+              <span>{doc.label}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      <p style={{ color: '#b91d1d', marginTop: 22, lineHeight: 1.5 }}>
+        If you proceed without these documents, the application might get rejected.
+        Do you want to process with the current files or provide the required documents?
+      </p>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginTop: 24 }}>
+        <button
+          type="button"
+          onClick={() => setShowMissingModal(false)}
+          style={{
+            padding: '11px 18px',
+            borderRadius: 7,
+            border: '1px solid #ef4444',
+            background: '#fff',
+            color: '#dc2626',
+            fontWeight: 800,
+            cursor: 'pointer',
+          }}
+        >
+          PROVIDE REQUIRED
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setShowMissingModal(false)
+            handleSubmit()
+          }}
+          style={{
+            padding: '11px 18px',
+            borderRadius: 7,
+            border: 'none',
+            background: '#dc2626',
+            color: '#fff',
+            fontWeight: 800,
+            cursor: 'pointer',
+          }}
+        >
+          PROCESS ANYWAY
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
               <div style={{ marginTop: 12, fontSize: '0.76rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
                 <AlertCircle size={12} /> ClaimAI-extracted — please verify before submitting.
