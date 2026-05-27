@@ -8,3 +8,4 @@ __pycache__
 /graphs
 /policies
 *.pdf
+API/chroma_db/
