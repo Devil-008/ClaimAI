@@ -15,6 +15,8 @@ from sqlalchemy import text
 
 # Order matters — child tables first to avoid FK constraint errors
 TABLES_TO_CLEAR = [
+    "chat_messages",
+    "chat_sessions",
     "notifications",
     "audit_logs",
     "pipeline_traces",
@@ -27,6 +29,9 @@ TABLES_TO_CLEAR = [
     "kpi_snapshots",
     "system_health",
     "knowledge_documents",
+    "email_configs",
+    "email_logs",
+    "claim_documents",
 ]
 
 with engine.connect() as conn:
@@ -44,3 +49,21 @@ with engine.connect() as conn:
     conn.commit()
     print("\nFK checks re-enabled. All done.")
     print("\n✔ users table was NOT touched — all logins still work.")
+
+# ── Reset Chroma Vector DB ────────────────────────────────────
+print("\nResetting Chroma Vector DB...")
+try:
+    import chromadb
+    # Persistent client path matches app/services/vector_store_service.py
+    chroma_client = chromadb.PersistentClient(path="./chroma_db")
+    try:
+        chroma_client.delete_collection("document_chunks")
+        print("  ✅ DELETED Chroma collection 'document_chunks'")
+    except Exception as e:
+        print(f"  ⚠  Collection 'document_chunks' did not exist or could not be deleted: {e}")
+    
+    chroma_client.get_or_create_collection("document_chunks")
+    print("  ✅ RE-CREATED fresh empty Chroma collection 'document_chunks'")
+    print("✔ Chroma Vector DB reset complete.")
+except Exception as e:
+    print(f"  ⚠  Could not reset Chroma DB: {e}")

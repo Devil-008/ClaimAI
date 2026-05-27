@@ -42,6 +42,36 @@ try:
 except Exception:
     pass
 
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE claims ADD COLUMN document_request_count INT DEFAULT 0;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE claims ADD COLUMN document_request_message TEXT NULL;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE claims ADD COLUMN document_request_by_role VARCHAR(50) NULL;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE claims ADD COLUMN status_before_doc_request VARCHAR(50) NULL;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE claims MODIFY COLUMN status ENUM('fnol_received', 'coverage_verification', 'damage_assessment', 'fraud_scoring', 'settlement_pending', 'settled', 'escalated_adjuster', 'escalated_siu', 'rejected', 'closed', 'documents_required') DEFAULT 'fnol_received';"))
+except Exception:
+    pass
+
 # try:
 #     with engine.begin() as conn:
 #         conn.execute(text("ALTER TABLE knowledge_documents ADD COLUMN file_size INT;"))

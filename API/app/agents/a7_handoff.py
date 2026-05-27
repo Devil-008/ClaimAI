@@ -23,21 +23,14 @@ def run(
     risk_level = fraud_result.get("risk_level", "medium")
     red_flags = fraud_result.get("red_flags", [])
 
-    if siu_referred:
-        claim.status = "escalated_siu"
-        escalation_type = "siu"
-        reason = (
-            reason
-            or f"Fraud score {fraud_result['fraud_score']:.2f} — SIU referral threshold exceeded"
-        )
-    else:
-        claim.status = "escalated_adjuster"
-        escalation_type = "adjuster"
-        reason = reason or (
-            f"Risk level: {risk_level}. "
-            f"Red flags: {', '.join(red_flags) if red_flags else 'edge case'}. "
-            f"Estimate: ₹{damage_result.get('net_estimate', 0):,.0f}"
-        )
+    # All claims must go to the adjuster first for verification
+    claim.status = "escalated_adjuster"
+    escalation_type = "adjuster"
+    reason = reason or (
+        f"Risk level: {risk_level}. "
+        f"Red flags: {', '.join(red_flags) if red_flags else 'none'}. "
+        f"Estimate: ₹{damage_result.get('net_estimate', 0):,.0f}"
+    )
 
     claim.updated_at = datetime.utcnow()
     db.flush()
@@ -51,5 +44,5 @@ def run(
         "reason": reason,
         "red_flags": red_flags,
         "fraud_score": fraud_result.get("fraud_score"),
-        "message": f"Claim escalated to {'SIU' if siu_referred else 'human adjuster'}. Reason: {reason}",
+        "message": f"Claim escalated to human adjuster. Reason: {reason}",
     }

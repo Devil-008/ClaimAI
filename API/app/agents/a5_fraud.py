@@ -77,15 +77,13 @@ def run(db: Session, claim: Claim, coverage_result: dict, damage_result: dict) -
     coverage_limit = coverage_result.get("coverage_limit", 999_999)
     ABSOLUTE_AUTO_SETTLE_CAP = 50000  # INR
 
-    auto_settle = (
-        (score < FRAUD_THRESHOLDS["auto_settle"])
-        and (not siu_referred)
-        and (len(red_flags) == 0)
-        and (
-            net_estimate <= ABSOLUTE_AUTO_SETTLE_CAP
-            or net_estimate <= coverage_limit * 0.2
-        )
-    )
+    auto_settle = False
+
+    # Calculate dynamic payout ratio (maximum 85%) and deduct based on issues
+    base_ratio = 0.85
+    ratio_reduction = (score * 0.5) + (len(red_flags) * 0.05)
+    final_ratio = max(0.10, base_ratio - ratio_reduction)
+    recommended_payout = round(net_estimate * final_ratio, 2)
 
     result = {
         "agent": "A5_Fraud_Risk_Scoring",
@@ -95,7 +93,9 @@ def run(db: Session, claim: Claim, coverage_result: dict, damage_result: dict) -
         "red_flags": red_flags,
         "siu_referred": siu_referred,
         "auto_settle": auto_settle,
-        "message": f"Fraud score: {score:.2f} ({risk_level} risk). {'⚠ SIU referral triggered.' if siu_referred else 'Auto-settle eligible.' if auto_settle else 'Adjuster review recommended.'}",
+        "recommended_payout": recommended_payout,
+        "payout_ratio": round(final_ratio, 4),
+        "message": f"Fraud score: {score:.2f} ({risk_level} risk). Recommended payout: ₹{recommended_payout:,.2f} ({final_ratio*100:.1f}% of estimate). {'⚠ SIU referral triggered.' if siu_referred else 'Auto-settle eligible.' if auto_settle else 'Adjuster review recommended.'}",
     }
 
     # Persist

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ArrowLeft, Upload, FileText, CheckCircle2, AlertCircle,
+  ArrowLeft, Upload, FileText, CheckCircle2, AlertCircle, AlertTriangle,
   Loader2, Send, Shield, X, RefreshCw, Sparkles
 } from 'lucide-react'
 import api from '../../services/api'
@@ -10,15 +10,15 @@ import toast from 'react-hot-toast'
 
 /* ── constants ──────────────────────────────────────────────── */
 const CLAIM_TYPE_LABELS = {
-  auto_accident:    '🚗 Auto Accident',
-  property_damage:  '🏠 Property Damage',
-  theft:            '🔓 Theft',
-  medical:          '🏥 Medical',
-  weather:          '🌪️ Weather Damage',
-  other:            '📄 Other',
+  auto_accident: '🚗 Auto Accident',
+  property_damage: '🏠 Property Damage',
+  theft: '🔓 Theft',
+  medical: '🏥 Medical',
+  weather: '🌪️ Weather Damage',
+  other: '📄 Other',
 }
 
-const fadeUp  = { hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0 } }
+const fadeUp = { hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0 } }
 const stagger = { visible: { transition: { staggerChildren: 0.07 } } }
 
 /* ── helpers ────────────────────────────────────────────────── */
@@ -30,26 +30,26 @@ function fmt(dateStr) {
 
 /* ── component ──────────────────────────────────────────────── */
 export default function NewClaim() {
-  const navigate       = useNavigate()
-  const [params]       = useSearchParams()
+  const navigate = useNavigate()
+  const [params] = useSearchParams()
 
   /* policies */
-  const [policies,     setPolicies]     = useState([])
-  const [polLoading,   setPolLoading]   = useState(true)
-  const [selectedPol,  setSelectedPol]  = useState(null)
+  const [policies, setPolicies] = useState([])
+  const [polLoading, setPolLoading] = useState(true)
+  const [selectedPol, setSelectedPol] = useState(null)
 
   /* file upload */
-  const [file,         setFile]         = useState(null)
-  const [dragOver,     setDragOver]     = useState(false)
-  const fileRef                         = useRef()
+  const [docFiles, setDocFiles] = useState([])
+  const [dragOver, setDragOver] = useState(false)
+  const fileRef = useRef()
 
   /* extraction state */
-  const [extracting,   setExtracting]   = useState(false)
-  const [extracted,    setExtracted]    = useState(null)   // AI result
+  const [extracting, setExtracting] = useState(false)
+  const [extracted, setExtracted] = useState(null)   // AI result
   const [extractError, setExtractError] = useState(null)
 
   /* final submit */
-  const [submitting,   setSubmitting]   = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
   /* ── load policies ──────────────────────────────────────────── */
   useEffect(() => {
@@ -69,24 +69,51 @@ export default function NewClaim() {
   }, [params])
 
   /* ── file handling ──────────────────────────────────────────── */
-  const handleFile = useCallback(async (f) => {
-    if (!f) return
+  const handleFiles = useCallback((filesList) => {
+    if (!filesList || filesList.length === 0) return
     const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg',
-                     'text/plain', 'application/msword',
-                     'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
-    if (!allowed.includes(f.type) && !f.name.match(/\.(pdf|jpg|jpeg|png|txt|doc|docx)$/i)) {
-      toast.error('Unsupported file type. Upload PDF, image, or Word doc.')
-      return
+      'text/plain', 'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+    const newFiles = Array.from(filesList)
+    for (const f of newFiles) {
+      if (!allowed.includes(f.type) && !f.name.match(/\.(pdf|jpg|jpeg|png|txt|doc|docx)$/i)) {
+        toast.error(`Unsupported file type: ${f.name}. Upload PDF, image, or Word doc.`)
+        return
+      }
     }
-    setFile(f)
+
+    const updatedFiles = [...docFiles, ...newFiles]
+    setDocFiles(updatedFiles)
     setExtracted(null)
     setExtractError(null)
+  }, [docFiles])
 
-    /* auto-extract immediately */
+  const removeFile = useCallback((index) => {
+    const updatedFiles = docFiles.filter((_, i) => i !== index)
+    setDocFiles(updatedFiles)
+    setExtracted(null)
+    setExtractError(null)
+  }, [docFiles])
+
+  const clearAllFiles = useCallback(() => {
+    setDocFiles([])
+    setExtracted(null)
+    setExtractError(null)
+  }, [])
+
+  /* Explicit AI extraction trigger */
+  const triggerExtraction = useCallback(async () => {
+    if (docFiles.length === 0) return toast.error('Please upload at least one document')
+    if (!selectedPol) return toast.error('Please select a policy first')
     setExtracting(true)
+    setExtracted(null)
+    setExtractError(null)
     try {
       const fd = new FormData()
-      fd.append('file', f)
+      fd.append('policy_id', selectedPol.id)
+      docFiles.forEach(f => {
+        fd.append('files', f)
+      })
       const res = await api.post('/fnol/extract-from-doc', fd, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
@@ -97,45 +124,45 @@ export default function NewClaim() {
         toast('Details partially extracted — please review', { icon: '⚠️' })
       }
     } catch (err) {
-      setExtractError('AI extraction failed. You can still submit manually after uploading.')
-      toast.error('Extraction failed — check your document and retry')
+      setExtractError('AI extraction failed. Please try again or fill manually.')
+      toast.error('Extraction failed')
     } finally {
       setExtracting(false)
     }
-  }, [])
+  }, [docFiles, selectedPol])
 
   function onDrop(e) {
     e.preventDefault(); setDragOver(false)
-    const f = e.dataTransfer.files?.[0]
-    if (f) handleFile(f)
+    const files = e.dataTransfer.files
+    if (files && files.length > 0) handleFiles(files)
   }
 
   function onFileInput(e) {
-    const f = e.target.files?.[0]
-    if (f) handleFile(f)
+    const files = e.target.files
+    if (files && files.length > 0) handleFiles(files)
     e.target.value = ''
-  }
-
-  function clearFile() {
-    setFile(null); setExtracted(null); setExtractError(null)
   }
 
   /* ── submit ─────────────────────────────────────────────────── */
   async function handleSubmit() {
     if (!selectedPol) { toast.error('Please select a policy'); return }
-    if (!file)        { toast.error('Please upload your claim document'); return }
-    if (!extracted)   { toast.error('Please wait for AI extraction to complete'); return }
+    if (docFiles.length === 0) { toast.error('Please upload your claim document'); return }
+    if (!extracted) { toast.error('Please wait for AI extraction to complete'); return }
 
     setSubmitting(true)
     try {
       const payload = {
-        policy_id:            selectedPol.id,
-        incident_date:        extracted.incident_date,
-        claim_type:           extracted.claim_type,
-        channel:              extracted.channel || 'web',
+        policy_id: selectedPol.id,
+        incident_date: extracted.incident_date,
+        claim_type: extracted.claim_type,
+        channel: extracted.channel || 'web',
         incident_description: extracted.incident_description,
-        incident_location:    extracted.incident_location,
-        contact_phone:        '',
+        incident_location: extracted.incident_location,
+        contact_phone: '',
+        temp_file_path: extracted.temp_file_path || null,
+        temp_file_paths: extracted.temp_file_paths || null,
+        extracted_data: extracted,
+        raw_text: extracted.raw_text || '',
       }
       const res = await api.post('/fnol/submit', payload)
       toast.success(`Claim ${res.data.claim?.claim_number || ''} submitted! AI pipeline running…`)
@@ -148,6 +175,11 @@ export default function NewClaim() {
   }
 
   /* ── render ─────────────────────────────────────────────────── */
+  const missingSuggested = extracted?.missing_categories?.filter(c =>
+    ['claim_form', 'medical_report', 'test_report', 'id_card'].includes(c)
+  ) || [];
+  const hasAllSuggested = !extracted || missingSuggested.length === 0;
+
   return (
     <motion.div
       initial="hidden" animate="visible" variants={stagger}
@@ -160,7 +192,7 @@ export default function NewClaim() {
           style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}
           onClick={() => navigate(-1)}
         >
-          <ArrowLeft size={14}/> Back
+          <ArrowLeft size={14} /> Back
         </button>
       </motion.div>
 
@@ -179,13 +211,13 @@ export default function NewClaim() {
           padding: '20px 24px',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <Shield size={16} style={{ color: 'var(--primary)' }}/>
+            <Shield size={16} style={{ color: 'var(--primary)' }} />
             <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Step 1 — Select Policy</span>
           </div>
 
           {polLoading ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-dim)', fontSize: '0.85rem' }}>
-              <Loader2 size={14} className="spin"/> Loading policies…
+              <Loader2 size={14} className="spin" /> Loading policies…
             </div>
           ) : policies.length === 0 ? (
             <div style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>
@@ -225,8 +257,8 @@ export default function NewClaim() {
                     }}>
                       {p.policy_type === 'health' ? '🏥'
                         : p.policy_type === 'auto' ? '🚗'
-                        : p.policy_type === 'property' ? '🏠'
-                        : p.policy_type === 'life' ? '🛡️' : '📋'}
+                          : p.policy_type === 'property' ? '🏠'
+                            : p.policy_type === 'life' ? '🛡️' : '📋'}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: '1.1rem', color: sel ? 'var(--primary-light)' : 'var(--text)', marginBottom: '3px' }}>
@@ -237,7 +269,7 @@ export default function NewClaim() {
                         <span style={{ color: 'var(--text-dim)', fontSize: '0.82rem' }}> · Expires {fmt(p.expiry_date)}</span>
                       </div>
                     </div>
-                    {sel && <CheckCircle2 size={16} style={{ color: 'var(--primary)', flexShrink: 0 }}/>}
+                    {sel && <CheckCircle2 size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />}
                   </button>
                 )
               })}
@@ -254,13 +286,39 @@ export default function NewClaim() {
           borderRadius: 14,
           padding: '20px 24px',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <Upload size={16} style={{ color: 'var(--primary)' }}/>
-            <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Step 2 — Upload Claim Document</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Upload size={16} style={{ color: 'var(--primary)' }} />
+              <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Step 2 — Upload Claim Document</span>
+            </div>
+            <a
+              href="http://localhost:8000/api/fnol/sample-form"
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                color: 'var(--accent)',
+                textDecoration: 'none',
+                background: 'rgba(79,70,229,0.1)',
+                padding: '5px 10px',
+                borderRadius: 6,
+                transition: 'all 0.2s',
+                border: '1px solid rgba(79,70,229,0.2)'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(79,70,229,0.18)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(79,70,229,0.1)'}
+            >
+              <FileText size={12} /> Download Sample Form
+            </a>
           </div>
 
           <AnimatePresence mode="wait">
-            {!file ? (
+            {docFiles.length === 0 ? (
               <motion.div
                 key="dropzone"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -278,18 +336,18 @@ export default function NewClaim() {
                   transition: 'all 0.2s',
                 }}
               >
-                <Upload size={28} style={{ color: 'var(--text-dim)', marginBottom: 10 }}/>
+                <Upload size={28} style={{ color: 'var(--text-dim)', marginBottom: 10 }} />
                 <div style={{ fontWeight: 600, marginBottom: 6 }}>
-                  Drop your claim document here
+                  Drop your claim documents here
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginBottom: 14 }}>
-                  Supports PDF, JPG, PNG, Word · Max 20 MB
+                  Supports PDF, Word · Max 5 MB per file
                 </div>
                 <button className="btn-primary" style={{ fontSize: '0.82rem', padding: '8px 18px' }}
                   onClick={e => { e.stopPropagation(); fileRef.current?.click() }}>
-                  Browse File
+                  Browse Files
                 </button>
-                <input ref={fileRef} type="file" hidden
+                <input ref={fileRef} type="file" multiple hidden
                   accept=".pdf,.jpg,.jpeg,.png,.txt,.doc,.docx"
                   onChange={onFileInput}
                 />
@@ -299,30 +357,49 @@ export default function NewClaim() {
                 key="filebox"
                 initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
               >
-                {/* File info bar */}
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  background: 'rgba(99,102,241,0.08)',
-                  border: '1px solid rgba(99,102,241,0.2)',
-                  borderRadius: 10, padding: '12px 16px',
-                  marginBottom: 16,
-                }}>
-                  <FileText size={20} style={{ color: 'var(--primary)', flexShrink: 0 }}/>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {file.name}
+                {/* File list */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                  {docFiles.map((file, idx) => (
+                    <div key={idx} style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      background: 'rgba(99,102,241,0.08)',
+                      border: '1px solid rgba(99,102,241,0.2)',
+                      borderRadius: 10, padding: '12px 16px',
+                    }}>
+                      <FileText size={20} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {file.name}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                          {(file.size / 1024).toFixed(1)} KB
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => removeFile(idx)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', padding: 4 }}
+                        title="Remove file"
+                      >
+                        <X size={16} />
+                      </button>
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                      {(file.size / 1024).toFixed(1)} KB
-                    </div>
-                  </div>
-                  <button
-                    onClick={clearFile}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', padding: 4 }}
-                    title="Remove file"
-                  >
-                    <X size={16}/>
+                  ))}
+                </div>
+
+                {/* Additional file trigger / Clear all */}
+                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                  <button className="btn-ghost" style={{ fontSize: '0.82rem', padding: '6px 12px' }} onClick={() => fileRef.current?.click()}>
+                    + Add More Files
                   </button>
+                  <button className="btn-ghost" style={{ fontSize: '0.82rem', padding: '6px 12px', color: '#EF4444' }} onClick={clearAllFiles}>
+                    Clear All
+                  </button>
+                  {docFiles.length > 0 && !extracted && !extracting && (
+                    <button className="btn-primary" style={{ fontSize: '0.82rem', padding: '6px 16px', background: '#10B981', borderColor: '#10B981', color: '#fff', marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }} onClick={triggerExtraction}>
+                      <Sparkles size={14} /> ClaimAI Extract Details
+                    </button>
+                  )}
+                  <input ref={fileRef} type="file" multiple hidden accept=".pdf,.jpg,.jpeg,.png,.txt,.doc,.docx" onChange={onFileInput} />
                 </div>
 
                 {/* Extraction status */}
@@ -334,11 +411,11 @@ export default function NewClaim() {
                     background: 'rgba(99,102,241,0.05)',
                     borderRadius: 10, border: '1px solid rgba(99,102,241,0.12)',
                   }}>
-                    <Loader2 size={16} className="spin" style={{ color: 'var(--primary)' }}/>
+                    <Loader2 size={16} className="spin" style={{ color: 'var(--primary)' }} />
                     <div>
                       <div style={{ fontWeight: 600 }}>AI Extraction in Progress…</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                        Reading your document and extracting claim details
+                        Reading your documents and extracting claim details
                       </div>
                     </div>
                   </div>
@@ -352,7 +429,7 @@ export default function NewClaim() {
                     background: 'rgba(239,68,68,0.07)',
                     borderRadius: 10, border: '1px solid rgba(239,68,68,0.2)',
                   }}>
-                    <AlertCircle size={15} style={{ flexShrink: 0, marginTop: 1 }}/>
+                    <AlertCircle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
                     <div>
                       <div style={{ fontWeight: 600, marginBottom: 2 }}>Extraction issue</div>
                       <div>{extractError}</div>
@@ -362,6 +439,11 @@ export default function NewClaim() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          <div style={{ marginTop: 12, fontSize: '0.78rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Sparkles size={12} style={{ color: 'var(--primary-light)' }} />
+            Required documents: CLAIM FORM, MEDICAL REPORT, TEST REPORT, ID CARD.
+          </div>
         </div>
       </motion.div>
 
@@ -380,7 +462,7 @@ export default function NewClaim() {
               padding: '20px 24px',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                <Sparkles size={16} style={{ color: '#10B981' }}/>
+                <Sparkles size={16} style={{ color: '#10B981' }} />
                 <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
                   Step 3 — Review AI-Extracted Details
                 </span>
@@ -391,7 +473,7 @@ export default function NewClaim() {
                     background: 'rgba(16,185,129,0.15)', color: '#10B981',
                     border: '1px solid rgba(16,185,129,0.25)'
                   }}>
-                    ✓ AI Extracted
+                    ✓ ClaimAI Extracted
                   </span>
                 )}
               </div>
@@ -422,12 +504,53 @@ export default function NewClaim() {
                 </div>
               </div>
 
+              {/* Categorized Documents List */}
+              {extracted.documents && extracted.documents.length > 0 && (
+                <div style={{ marginTop: 18, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 14 }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Categorized Documents</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {extracted.documents.map((doc, idx) => {
+                      const categoryLabels = {
+                        claim_form: '📝 Claim Form',
+                        medical_report: '🏥 Medical Report',
+                        test_report: '🔬 Test Report',
+                        id_card: '🆔 ID Card',
+                        other: '📄 Other Document'
+                      }
+                      return (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, padding: '8px 12px', fontSize: '0.82rem' }}>
+                          <span style={{ fontWeight: 500 }}>{doc.filename}</span>
+                          <span style={{ fontWeight: 600, color: 'var(--primary-light)', background: 'rgba(99,102,241,0.1)', padding: '2px 8px', borderRadius: 4, fontSize: '0.72rem' }}>
+                            {categoryLabels[doc.category] || doc.category}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Missing Documents Alert */}
+              {extracted.missing_categories && extracted.missing_categories.length > 0 && (
+                <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', color: '#FCD34D', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                    <AlertTriangle size={14} /> Missing Suggested Documents
+                  </div>
+                  <div>
+                    We did not detect the following document types: <span style={{ fontWeight: 600 }}>{extracted.missing_categories.map(c => c.replace('_', ' ').toUpperCase()).join(', ')}</span>.
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'rgba(252,211,77,0.7)' }}>
+                    Please upload them for faster approval, or proceed if you do not have them.
+                  </div>
+                </div>
+              )}
+
               <div style={{
                 marginTop: 14, fontSize: '0.76rem', color: 'var(--text-dim)',
                 display: 'flex', alignItems: 'center', gap: 6,
                 borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12,
               }}>
-                <AlertCircle size={12}/>
+                <AlertCircle size={12} />
                 These details were extracted by AI. Please verify before submitting.
               </div>
             </div>
@@ -437,17 +560,27 @@ export default function NewClaim() {
 
       {/* ── Submit / Cancel ── */}
       <motion.div variants={fadeUp} style={{ display: 'flex', gap: 12 }}>
-        <button
-          className="btn-primary"
-          onClick={handleSubmit}
-          disabled={submitting || extracting || !file || !selectedPol || !extracted}
-          style={{ gap: 8, opacity: (submitting || extracting || !file || !selectedPol || !extracted) ? 0.5 : 1 }}
-        >
-          {submitting
-            ? <><Loader2 size={15} className="spin"/> Submitting…</>
-            : <><Send size={15}/> Submit Claim</>
-          }
-        </button>
+        {hasAllSuggested ? (
+          <button
+            className="btn-primary"
+            onClick={handleSubmit}
+            disabled={submitting || extracting || docFiles.length === 0 || !selectedPol || !extracted}
+            style={{ gap: 8, opacity: (submitting || extracting || docFiles.length === 0 || !selectedPol || !extracted) ? 0.5 : 1 }}
+          >
+            {submitting
+              ? <><Loader2 size={15} className="spin" /> Submitting…</>
+              : <><Send size={15} /> Read Claim Documents</>
+            }
+          </button>
+        ) : (
+          <button
+            className="btn-primary"
+            onClick={() => fileRef.current?.click()}
+            style={{ gap: 8, background: '#F59E0B', borderColor: '#F59E0B', color: '#fff' }}
+          >
+            <Upload size={15} /> Upload More Documents
+          </button>
+        )}
         <button className="btn-ghost" onClick={() => navigate(-1)}>
           Cancel
         </button>

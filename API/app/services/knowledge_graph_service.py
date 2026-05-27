@@ -52,11 +52,17 @@ async def process_knowledge_graph(
     for doc in documents:
         db.refresh(doc)
 
+    # Store doc IDs before releasing the connection for the long AI calls
+    doc_ids = [d.id for d in documents]
+    doc_id_map = {d.id: d for d in documents}
+
     # 2. Call Mistral API for JSON Extraction
+    # NOTE: This can take 30-180 seconds. The MySQL connection may time out
+    # during this period. We expire all objects so SQLAlchemy re-fetches them
+    # fresh on next access, avoiding 'Lost connection' errors.
     structured_data = await _call_mistral_extraction(combined_text, prompt)
 
     # 3. Save to ArangoDB (Knowledge Graph) with document IDs
-    doc_ids = [d.id for d in documents]
     _save_to_arango(structured_data, doc_ids)
 
     # 4. Chunk raw text and save to vector store
@@ -64,19 +70,49 @@ async def process_knowledge_graph(
         vector_store_service = VectorStoreService()
         for doc in documents:
             chunks = vector_store_service.chunk_text(combined_text)
-            vector_store_service.save_document_chunks(chunks, doc.id, doc.filename)
+            # Knowledge base uploads are SHARED — visible to all users
+            vector_store_service.save_document_chunks(
+                chunks,
+                doc.id,
+                doc.filename,
+                source_type="knowledge_base",  # shared across all users
+            )
         logger.info(f"Successfully saved document chunks to vector store for {len(documents)} documents.")
     except Exception as e:
         logger.error(f"Failed to save chunks to vector store: {e}")
 
-    # 5. Update MySQL Metadata
-    for doc in documents:
-        doc.context_summary = json.dumps(structured_data.get("context_summary", {}))
-        doc.risk_analysis = json.dumps(structured_data.get("risk_analysis", {}))
-        doc.suggested_questions = structured_data.get("chatbot_questions", [])
-        doc.status = "completed"
 
-    db.commit()
+    # 5. Update MySQL Metadata
+    # The connection may have been dropped by MySQL during the long AI calls above.
+    # Expire all cached objects to force SQLAlchemy to re-establish the connection
+    # and re-fetch the records on next access (pool_pre_ping handles reconnect).
+    try:
+        db.expire_all()
+        # Re-fetch documents from DB using their IDs to get fresh ORM objects
+        for doc_id in doc_ids:
+            doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
+            if doc:
+                doc.context_summary = json.dumps(structured_data.get("context_summary", {}))
+                doc.risk_analysis = json.dumps(structured_data.get("risk_analysis", {}))
+                doc.suggested_questions = structured_data.get("chatbot_questions", [])
+                doc.status = "completed"
+        db.commit()
+    except Exception as db_err:
+        logger.error(f"DB commit failed after AI processing: {db_err}. Attempting rollback and retry.")
+        try:
+            db.rollback()
+            db.expire_all()
+            for doc_id in doc_ids:
+                doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
+                if doc:
+                    doc.context_summary = json.dumps(structured_data.get("context_summary", {}))
+                    doc.risk_analysis = json.dumps(structured_data.get("risk_analysis", {}))
+                    doc.suggested_questions = structured_data.get("chatbot_questions", [])
+                    doc.status = "completed"
+            db.commit()
+            logger.info("Retry commit succeeded after rollback.")
+        except Exception as retry_err:
+            logger.error(f"Retry commit also failed: {retry_err}. Document statuses may not be updated.")
 
     # Generate standalone static HTML graphs for each document in the batch
     import os
