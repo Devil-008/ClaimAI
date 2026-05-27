@@ -521,44 +521,40 @@ def request_more_documents(
         raise HTTPException(status_code=404, detail="Claim not found")
 
     current_count = claim.document_request_count or 0
-    if current_count >= 3:
-        # Escalate directly to SIU Investigator
-        claim.status = "escalated_siu"
-        claim.escalation_level = 0
-        claim.escalation_started_at = None
-        claim.escalation_next_check_at = None
-        claim.escalation_last_notified_at = None
-        claim.document_request_message = None
+    next_count = current_count + 1
 
-        db.commit()
+    claim.document_request_count = next_count
+    claim.status = "documents_required"
+    db.commit()
+        
 
         # Notify claimant via email
-        notify_claimant_update(
-            db,
-            claim,
-            subject=f"Claim {claim.claim_number} escalated to SIU",
-            body=(
-                f"Hello,\n\n"
-                f"Your claim {claim.claim_number} has exceeded the maximum number of document requests (3) "
-                f"and has been escalated to the SIU investigator for manual investigation and re-verification.\n"
-            ),
-            event_type="siu_escalation_limit_exceeded",
-            source_status="escalated_siu",
-            trigger_reason="Maximum document request limit reached (3 times)."
-        )
+    notify_claimant_update(
+        db,
+        claim,
+        subject=f"Claim {claim.claim_number} escalated to SIU",
+        body=(
+            f"Hello,\n\n"
+            f"Your claim {claim.claim_number} has exceeded the maximum number of document requests (3) "
+            f"and has been escalated to the SIU investigator for manual investigation and re-verification.\n"
+        ),
+        event_type="siu_escalation_limit_exceeded",
+        source_status="escalated_siu",
+        trigger_reason="Maximum document request limit reached (3 times)."
+    )
 
-        # Trigger email to SIU Investigator
-        from app.services.email_escalation_service import notify_claim_escalation
-        notify_claim_escalation(db, claim)
+    # Trigger email to SIU Investigator
+    from app.services.email_escalation_service import notify_claim_escalation
+    notify_claim_escalation(db, claim)
 
-        db.commit()
-        return claim
+    db.commit()
+    return claim
 
     claim.status_before_doc_request = claim.status
     claim.status = "documents_required"
     claim.document_request_message = payload.message
     claim.document_request_by_role = current_user.role
-    claim.document_request_count = current_count + 1
+    claim.document_request_count = next_count
 
     db.commit()
 
@@ -696,10 +692,15 @@ async def upload_more_documents(
 
     # Revert back status or fallback
     back_status = claim.status_before_doc_request or "escalated_adjuster"
+
     if back_status in ("documents_required", "fnol_received", "settled", "rejected", "closed"):
         back_status = "escalated_adjuster"
 
-    claim.status = back_status
+    if (claim.document_request_count or 0) >= 3:
+        claim.status = "escalated_siu"
+    else:
+        claim.status = back_status
+
     claim.status_before_doc_request = None
     claim.document_request_message = None
 
