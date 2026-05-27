@@ -436,19 +436,21 @@ def notify_claimant_update(
         log.status = "sent"
         log.sent_at = now
         log.error_message = None
-        db.add(
-            Notification(
-                user_id=recipient.id,
-                title=subject,
-                message=body,
-                claim_id=claim.id,
-                is_read=False,
-            )
-        )
     except Exception as exc:
         log.status = "failed"
         log.error_message = str(exc)
         log.sent_at = now
+
+    db.add(
+        Notification(
+            user_id=recipient.id,
+            title=subject,
+            message=body,
+            claim_id=claim.id,
+            is_read=False,
+        )
+    )
+    
 
     db.commit()
     return log

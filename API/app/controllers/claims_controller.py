@@ -548,7 +548,7 @@ def request_more_documents(
     notify_claim_escalation(db, claim)
 
     db.commit()
-    return claim
+    
 
     claim.status_before_doc_request = claim.status
     claim.status = "documents_required"
@@ -557,8 +557,8 @@ def request_more_documents(
     claim.document_request_count = next_count
 
     db.commit()
-
-    # Send email to policyholder
+    db.refresh(claim)
+    # Send email + notification to policyholder
     notify_claimant_update(
         db,
         claim,
