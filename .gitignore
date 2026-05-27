@@ -9,3 +9,4 @@ __pycache__
 /policies
 *.pdf
 API/chroma_db/
+env/
